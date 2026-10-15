@@ -151,8 +151,9 @@ final class OnboardingTests: XCTestCase {
         c.crowd.people = []
         c.pursuit.patrols = [Patrol(id: 70, car: VehicleState(position: at(12, 4) + Vec2(190, 0), heading: .pi))]
         var events: [CityEvent] = []
-        for _ in 0..<60 { events += c.step(input: .idle, actions: CityActions(fire: true), dt: dt) }
-        XCTAssertTrue(events.contains(.patrolDisabled(70)))
+        for _ in 0..<90 { events += c.step(input: .idle, actions: CityActions(fire: true), dt: dt) }
+        // A disabled cruiser or a downed officer leaves a gun behind.
+        XCTAssertTrue(CityTests.copsAnswered(events, patrol: 70))
         XCTAssertTrue(events.contains { if case .droppedWeapon = $0 { return true } else { return false } })
         XCTAssertTrue(c.pickups.contains { $0.isDrop })
     }
@@ -219,5 +220,24 @@ final class OnboardingTests: XCTestCase {
         c.crowd.people[0].target = c.crowd.people[0].position
         for _ in 0..<40 { events = c.step(input: .idle, actions: CityActions(fire: true), dt: dt); if events.contains(.pedestrianDown(3)) { break } }
         XCTAssertTrue(events.contains(.pedestrianDown(3)))
+    }
+}
+
+final class LookTests: XCTestCase {
+    func testOldProfilesLoadWithDefaultLook() throws {
+        let json = #"{"name":"Omari","skin":1,"hair":0,"jacket":2,"starter":"pistol"}"#
+        let p = try JSONDecoder().decode(PlayerProfile.self, from: Data(json.utf8))
+        XCTAssertNil(p.hairStyle)
+        XCTAssertEqual(p.normalized.hairStyle, 0)
+        XCTAssertEqual(p.normalized.build, 1)
+    }
+
+    func testLookIndicesStayInRange() {
+        var p = PlayerProfile(name: "A")
+        p.hairStyle = 99
+        p.outfit = -3
+        let n = p.normalized
+        XCTAssertTrue(PlayerProfile.hairStyles.indices.contains(n.hairStyle!))
+        XCTAssertTrue(PlayerProfile.outfits.indices.contains(n.outfit!))
     }
 }

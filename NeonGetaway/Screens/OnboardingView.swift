@@ -213,13 +213,10 @@ private struct CreateStep: View {
                   nextEnabled: !draft.name.trimmingCharacters(in: .whitespaces).isEmpty,
                   onBack: onBack, onNext: onNext) {
             HStack(alignment: .center, spacing: 18) {
-                Image(uiImage: PixelArt.portraitImage(draft, scale: 9))
-                    .interpolation(.none)
-                    .padding(12)
+                CharacterPreview(look: HumanLook.player(draft), reduceMotion: reduceMotion)
+                    .frame(width: 150, height: 210)
                     .background(Palette.ink.opacity(0.7))
                     .overlay(Rectangle().strokeBorder(Palette.teal, lineWidth: 3))
-                    .offset(y: bob && !reduceMotion ? -4 : 0)
-                    .rotation3DEffect(.degrees(spins), axis: (x: 0, y: 1, z: 0))
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(lookDescription)
                 VStack(alignment: .leading, spacing: 10) {
@@ -230,6 +227,11 @@ private struct CreateStep: View {
                             draft.skin = random.skin
                             draft.hair = random.hair
                             draft.jacket = random.jacket
+                            draft.hairStyle = random.hairStyle
+                            draft.outfit = random.outfit
+                            draft.build = random.build
+                            draft.frame = random.frame
+                            draft.facialHair = random.facialHair
                             spins += 360
                         }
                     } label: {
@@ -277,12 +279,7 @@ private struct CreateStep: View {
                 }
             }
 
-            SwatchRow(title: "Skin", colors: PixelArt.lookSkins.map(Color.init(uiColor:)),
-                      names: (1...PixelArt.lookSkins.count).map { "Tone \($0)" }, selection: $draft.skin)
-            SwatchRow(title: "Hair", colors: PixelArt.lookHairs.map(Color.init(uiColor:)),
-                      names: PixelArt.lookHairNames, selection: $draft.hair)
-            SwatchRow(title: "Jacket", colors: PixelArt.lookJackets.map(Color.init(uiColor:)),
-                      names: PixelArt.lookJacketNames, selection: $draft.jacket)
+            LookPickers(draft: $draft)
         }
     }
 
@@ -361,7 +358,7 @@ private struct WeaponStep: View {
                         withAnimation { draft.starter = weapon }
                     } label: {
                         Image(uiImage: PixelArt.weaponImage(weapon, scale: 2))
-                            .interpolation(.none)
+                            .interpolation(.high)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .background(draft.starter == weapon ? Palette.magenta.opacity(0.35) : Palette.ink.opacity(0.6))
                             .overlay(Rectangle().strokeBorder(draft.starter == weapon ? Palette.magenta : Palette.cream.opacity(0.25),
@@ -386,7 +383,7 @@ private struct WeaponCard: View {
             HStack {
                 Spacer()
                 Image(uiImage: PixelArt.weaponImage(weapon, scale: 8))
-                    .interpolation(.none)
+                    .interpolation(.high)
                     .frame(height: 70)
                     .accessibilityHidden(true)
                 Spacer()

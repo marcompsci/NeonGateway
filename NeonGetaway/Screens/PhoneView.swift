@@ -65,6 +65,10 @@ struct PhoneView: View {
 
     private func apps(_ p: PlayerProgress) -> [Tile] {
         [
+            Tile(title: "Dashboard", detail: "\(DashboardSummary(p).profitPerHour) cr/h", icon: "chart.bar.xaxis",
+                 color: Palette.sunset, id: "phone.dashboard", badge: tillsReady(p), screen: .dashboard),
+            Tile(title: "Atlas", detail: "Ask anything", icon: "sparkles",
+                 color: Palette.teal, id: "phone.atlas", screen: .atlas),
             Tile(title: "League", detail: "#\(League.rank(p)) · \(p.league.division.name)", icon: "trophy.fill",
                  color: Palette.sunset, id: "phone.league", screen: .league),
             Tile(title: "Biz", detail: bizDetail(p), icon: "storefront.fill", color: Palette.teal,
@@ -78,7 +82,11 @@ struct PhoneView: View {
             Tile(title: "Trophies", detail: "\(Int(Achievements.completion(p) * 100))% done", icon: "rosette",
                  color: Palette.sunset, id: "phone.trophies", badge: Achievements.claimable(p).count, screen: .trophies),
             Tile(title: "Skills", detail: skillsDetail(p), icon: "figure.run",
-                 color: Palette.magenta, id: "phone.skills", screen: .skills)
+                 color: Palette.magenta, id: "phone.skills", screen: .skills),
+            Tile(title: "Style", detail: "Your look", icon: "person.crop.circle.fill",
+                 color: Palette.teal, id: "phone.style", screen: .style),
+            Tile(title: "Radio", detail: AuroraFM.name, icon: "radio.fill",
+                 color: Palette.magenta, id: "phone.radio", screen: .radio)
         ]
     }
 

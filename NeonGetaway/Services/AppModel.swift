@@ -15,6 +15,9 @@ final class AppModel {
     let gameCenter = GameCenterService()
     let market = CloudMarket()
     let live = LiveMatchService()
+    /// Aurora FM (Apple Music through MusicKit).
+    let radio = RadioService()
+    let atlas = AtlasService()
 
     var progress: PlayerProgress {
         didSet { save(progress, key: Self.progressKey) }
@@ -25,6 +28,7 @@ final class AppModel {
             save(settings, key: Self.settingsKey)
             haptics.enabled = settings.hapticsOn
             audio.enabled = settings.soundOn
+            radio.enabled = settings.radioOn
         }
     }
 
@@ -34,9 +38,64 @@ final class AppModel {
         settings = SaveCodec.loadSettings(from: defaults.data(forKey: Self.settingsKey))
         haptics.enabled = settings.hapticsOn
         audio.enabled = settings.soundOn
+        radio.enabled = settings.radioOn
     }
 
     var repLevel: Int { ProgressionRules.level(forXP: progress.reputationXP) }
+
+    // MARK: Solara State
+
+    /// A delivered Solara job: pay, reputation and a line in the ledger.
+    func recordStateJob(_ job: StateJob, payout: StatePayout) {
+        var p = progress
+        p.reputationXP += payout.repXP
+        p.earn(payout.credits, .jobPay, job.title(in: SolaraState.district))
+        p.completedJobs += 1
+        p.lastUpdated = Date()
+        progress = p
+        gameCenter.submit(OnlineBoards.scores(progress))
+    }
+
+    // MARK: Street Challenge
+
+    @ObservationIgnored private var rivalCache: (week: Int, ghost: Ghost)?
+
+    var challengeWeek: Int { StreetChallenge.week(of: Date()) }
+
+    /// This week's Nova run (worked out once per week, then kept).
+    func challengeRival() -> Ghost {
+        let week = challengeWeek
+        if let cached = rivalCache, cached.week == week { return cached.ghost }
+        let ghost = StreetChallenge.rival(for: StreetChallenge.def(week: week))
+        rivalCache = (week, ghost)
+        return ghost
+    }
+
+    var challengeState: ChallengeState { StreetChallenge.state(week: challengeWeek, progress: progress) }
+
+    /// Nova in magenta, and your best this week in teal.
+    func challengeGhostCars() -> [DriveScene.GhostCar] {
+        var cars = [DriveScene.GhostCar(ghost: challengeRival(), label: StreetChallenge.rivalName,
+                                        tint: Palette.UI.magenta)]
+        if let best = challengeState.ghost {
+            cars.append(DriveScene.GhostCar(ghost: best, label: "Your best", tint: Palette.UI.teal))
+        }
+        return cars
+    }
+
+    func recordChallenge(time: Double, ghost: Ghost) -> StreetChallenge.Outcome {
+        var p = progress
+        let outcome = StreetChallenge.record(time: time, ghost: ghost, rivalTime: challengeRival().duration,
+                                             week: challengeWeek, progress: &p)
+        progress = p
+        return outcome
+    }
+
+    func recordChallengeAttempt() {
+        var p = progress
+        StreetChallenge.recordAttempt(week: challengeWeek, progress: &p)
+        progress = p
+    }
 
     /// Paint on the car the player starts runs in.
     var selectedDesign: PaintDesign? {
@@ -256,6 +315,12 @@ final class AppModel {
         guard stats.driven > 0 || stats.run > 0 || stats.hitsLanded > 0 else { return }
         var p = progress
         Skills.award(stats, to: &p)
+        // Miles and knocks wear the car you took out (the mechanic fixes it).
+        if p.garage.indices.contains(p.selectedVehicle), stats.driven > 0 || stats.knocks > 0 {
+            var wear = p.garage[p.selectedVehicle].wear ?? CarWear()
+            wear.add(driven: stats.driven, knocks: stats.knocks)
+            p.garage[p.selectedVehicle].wear = wear
+        }
         if p != progress { progress = p }
     }
 
@@ -266,6 +331,7 @@ final class AppModel {
     /// Weather and light for a new trip: the player's real clock, or a clear day if they
     /// turned live weather off.
     func conditions(now: Date = Date()) -> (Weather, TimeOfDay) {
+        if let forced = DebugLaunch.timeOfDay { return (.clear, forced) }
         guard settings.liveWeather else { return (.clear, .day) }
         let hour = Calendar.current.component(.hour, from: now)
         // The same hour of the same day always has the same weather.
@@ -334,7 +400,50 @@ final class AppModel {
     #endif
 
     /// The player's selected car with Garage upgrades applied.
-    var playerSpec: VehicleSpec { UpgradeShop.spec(progress.selectedModel.spec, levels: progress.upgrades) }
+    var playerSpec: VehicleSpec {
+        let spec = UpgradeShop.spec(progress.selectedModel.spec, levels: progress.upgrades)
+        return selectedCar?.wear?.apply(to: spec) ?? spec
+    }
+    var selectedCar: OwnedVehicle? {
+        progress.garage.indices.contains(progress.selectedVehicle) ? progress.garage[progress.selectedVehicle] : nil
+    }
+
+    // MARK: Cars, rims, mechanic
+
+    /// New look from the Style screen (name and starter weapon stay).
+    func updateLook(_ look: PlayerProfile) {
+        guard var p = progress.profile else { return }
+        p.skin = look.skin
+        p.hair = look.hair
+        p.jacket = look.jacket
+        p.hairStyle = look.hairStyle
+        p.outfit = look.outfit
+        p.build = look.build
+        p.frame = look.frame
+        p.facialHair = look.facialHair
+        progress.profile = p.normalized
+    }
+
+    func acquireCar(_ model: VehicleID) -> CarLineup.Refusal? {
+        var p = progress
+        let refusal = CarLineup.acquire(model, progress: &p)
+        if refusal == nil { progress = p }
+        return refusal
+    }
+
+    func fitRims(_ setup: RimSetup, slot: Int) -> RimShop.Refusal? {
+        var p = progress
+        let refusal = RimShop.fit(setup, slot: slot, progress: &p)
+        if refusal == nil { progress = p }
+        return refusal
+    }
+
+    func fixPart(_ part: CarPart, slot: Int) -> Int? {
+        var p = progress
+        let paid = Mechanic.fix(part, slot: slot, progress: &p)
+        if paid != nil { progress = p }
+        return paid
+    }
 
     // MARK: Gun store
 

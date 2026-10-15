@@ -111,6 +111,7 @@ public struct Pursuit: Sendable {
             patrols[i].mode = .cruise
             patrols[i].modeTime = 0
             patrols[i].lastSeen = nil
+            patrols[i].parked = false
         }
     }
 
@@ -144,7 +145,7 @@ public struct Pursuit: Sendable {
         return true
     }
 
-    public mutating func step(player: inout VehicleState, dt: Double) -> [PursuitEvent] {
+    public mutating func step(player: inout VehicleState, onFoot: Bool = false, dt: Double) -> [PursuitEvent] {
         guard !isBusted else { return [] }
         var events: [PursuitEvent] = []
         let starsBefore = heat.stars
@@ -165,8 +166,8 @@ public struct Pursuit: Sendable {
         // Patrols think and drive.
         var seen = false
         for i in patrols.indices {
-            if PatrolBrain.step(&patrols[i], player: player, heatStars: heat.stars, district: district,
-                                rng: &rng, dt: dt) {
+            if PatrolBrain.step(&patrols[i], player: player, playerOnFoot: onFoot, heatStars: heat.stars,
+                                district: district, rng: &rng, dt: dt) {
                 seen = true
             }
         }
@@ -224,21 +225,7 @@ public struct Pursuit: Sendable {
             bustProgress = max(0, bustProgress - dt * 2)
         }
         if bustProgress >= Self.bustSeconds {
-            if heat.stars <= Self.ticketMaxStars {
-                // A warning and a fine: heat clears and the units go back to patrolling.
-                bustProgress = 0
-                heat.points = 0
-                dispatchTime = 0
-                for i in patrols.indices {
-                    patrols[i].mode = .cruise
-                    patrols[i].modeTime = 0
-                    patrols[i].lastSeen = nil
-                }
-                events.append(.ticketed)
-            } else {
-                isBusted = true
-                events.append(.busted)
-            }
+            events.append(caught())
         }
 
         // Bring units in or send them home to match the heat.
@@ -260,6 +247,40 @@ public struct Pursuit: Sendable {
             events.insert(.starsChanged(from: starsBefore, to: heat.stars), at: 0)
         }
         return events
+    }
+
+    /// The player gave up (or was boxed in): a ticket with little heat, otherwise an arrest.
+    public mutating func caught() -> PursuitEvent {
+        if heat.stars <= Self.ticketMaxStars {
+            // A warning and a fine: heat clears and the units go back to patrolling.
+            bustProgress = 0
+            heat.points = 0
+            dispatchTime = 0
+            for i in patrols.indices {
+                patrols[i].mode = .cruise
+                patrols[i].modeTime = 0
+                patrols[i].lastSeen = nil
+            }
+            return .ticketed
+        }
+        isBusted = true
+        return .busted
+    }
+
+    /// A unit arrives already chasing (a dispatcher sending backup to a spot).
+    public mutating func dispatchUnit(at position: Vec2, heading: Double) {
+        var patrol = Patrol(id: nextID, car: VehicleState(position: position, heading: heading))
+        patrol.mode = .chase
+        patrols.append(patrol)
+        nextID += 1
+    }
+
+    /// Officers pulled over (or set off again).
+    mutating func setParked(_ id: Int, _ parked: Bool) {
+        guard let i = patrols.firstIndex(where: { $0.id == id }) else { return }
+        patrols[i].parked = parked
+        if parked { patrols[i].mode = .chase }
+        patrols[i].modeTime = 0
     }
 
     private mutating func spawn(awayFrom p: Vec2, minDistance: Double, mode: PatrolMode, lastSeen: Vec2?) {

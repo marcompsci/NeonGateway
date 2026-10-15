@@ -47,6 +47,8 @@ public struct PlayerProgress: Codable, Sendable, Equatable {
     public var claimedAchievements: [String] = []
     /// Online market, blocks, reports and live-play record (schema 4).
     public var online = OnlineState()
+    /// This week's Street Challenge: best time, ghost, medal.
+    public var challenge = ChallengeState()
 
     /// 2: weapons, garage and the business ledger. 3: league, dailies, bank, businesses, skills.
     /// 4: online state.
@@ -64,7 +66,7 @@ public struct PlayerProgress: Codable, Sendable, Equatable {
              currentEscapeStreak, upgrades, missionBests, lastUpdated,
              inventory, garage, selectedVehicle, books, profile,
              designs, listings, marketDay, designSerial,
-             league, daily, bank, properties, skills, career, claimedAchievements, online
+             league, daily, bank, properties, skills, career, claimedAchievements, online, challenge
     }
 
     public init(from decoder: Decoder) throws {
@@ -98,6 +100,7 @@ public struct PlayerProgress: Codable, Sendable, Equatable {
         career = (try? c.decodeIfPresent(CareerStats.self, forKey: .career)) ?? CareerStats()
         claimedAchievements = (try? c.decodeIfPresent([String].self, forKey: .claimedAchievements)) ?? []
         online = (try? c.decodeIfPresent(OnlineState.self, forKey: .online)) ?? OnlineState()
+        challenge = (try? c.decodeIfPresent(ChallengeState.self, forKey: .challenge)) ?? ChallengeState()
         // An old save is upgraded in place, not thrown away.
         schemaVersion = max(schemaVersion, PlayerProgress.currentSchema)
     }
@@ -148,12 +151,32 @@ public struct GameSettings: Codable, Sendable, Equatable {
     public var pedalOffset = LayoutOffset()
     /// Weather and time of day follow the real clock.
     public var liveWeather = true
+    /// Racer buttons, the stick, or the classic steering strip and pedals.
+    public var controlStyle: ControlStyle = .racer
+    /// How solid the car buttons are, 0.35...1 (they're see-through so the road shows).
+    public var driveOpacity = 0.65
+    /// AUTO FIRE: on foot, shoot by itself when a cruiser or another player is in the sights.
+    public var autoFire = false
+    /// Aurora FM plays during free roam and jobs.
+    public var radioOn = true
+    /// The camera on foot: close behind you (2nd person), your eyes (1st) or overhead (3rd).
+    public var footView: FootView = .close
+    /// Street-level 3D view (driving and on foot); off = the 2D top-down view.
+    public var street3D = true
+
+    /// Which landscape control layout these settings were saved for (see `currentLayoutVersion`).
+    public var layoutVersion = GameSettings.currentLayoutVersion
+
+    /// 2 = landscape play (0.13). Older saves get the new default layout and lose their
+    /// portrait-era button positions.
+    public static let currentLayoutVersion = 2
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case soundOn, hapticsOn, crtOn, reduceMotionOverride, aimAssist, frameRate, controlScale,
-             controlOpacity, leftHanded, steerOffset, pedalOffset, liveWeather
+             controlOpacity, leftHanded, steerOffset, pedalOffset, liveWeather, controlStyle,
+             driveOpacity, autoFire, layoutVersion, radioOn, footView, street3D
     }
 
     public init(from decoder: Decoder) throws {
@@ -171,6 +194,76 @@ public struct GameSettings: Codable, Sendable, Equatable {
         steerOffset = (try? c.decodeIfPresent(LayoutOffset.self, forKey: .steerOffset)) ?? d.steerOffset
         pedalOffset = (try? c.decodeIfPresent(LayoutOffset.self, forKey: .pedalOffset)) ?? d.pedalOffset
         liveWeather = (try? c.decodeIfPresent(Bool.self, forKey: .liveWeather)) ?? d.liveWeather
+        controlStyle = (try? c.decodeIfPresent(ControlStyle.self, forKey: .controlStyle)) ?? d.controlStyle
+        driveOpacity = (try? c.decodeIfPresent(Double.self, forKey: .driveOpacity)) ?? d.driveOpacity
+        autoFire = (try? c.decodeIfPresent(Bool.self, forKey: .autoFire)) ?? d.autoFire
+        radioOn = (try? c.decodeIfPresent(Bool.self, forKey: .radioOn)) ?? d.radioOn
+        footView = (try? c.decodeIfPresent(FootView.self, forKey: .footView)) ?? d.footView
+        street3D = (try? c.decodeIfPresent(Bool.self, forKey: .street3D)) ?? d.street3D
+        let version = (try? c.decodeIfPresent(Int.self, forKey: .layoutVersion)) ?? 0
+        if version < Self.currentLayoutVersion {
+            controlStyle = d.controlStyle
+            steerOffset = LayoutOffset()
+            pedalOffset = LayoutOffset()
+        }
+        layoutVersion = Self.currentLayoutVersion
+    }
+}
+
+/// The camera when you're out of the car.
+public enum FootView: String, Codable, Sendable, CaseIterable {
+    /// 2nd person: close, just behind you, turning with you. The default when you get out.
+    case close
+    /// 1st person: through your eyes. Tight, turning with you, and you only see what's in front.
+    case eyes
+    /// 3rd person: the wide overhead view, north up.
+    case overhead
+
+    public var label: String {
+        switch self {
+        case .close: "2nd person"
+        case .eyes: "1st person"
+        case .overhead: "3rd person"
+        }
+    }
+    public var short: String {
+        switch self {
+        case .close: "2ND"
+        case .eyes: "1ST"
+        case .overhead: "3RD"
+        }
+    }
+    /// Close → eyes → overhead → close.
+    public var next: FootView {
+        let all = Self.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
+    }
+}
+
+/// How the on-screen controls work.
+public enum ControlStyle: String, Codable, Sendable, CaseIterable {
+    /// Racing-game layout: the joystick on the left thumb points where to drive; BRAKE and GAS
+    /// pedals (and DRIFT) on the right. On foot: the shooter layout (stick to move, FIRE, AIM, SPRINT).
+    case racer
+    /// A thumbstick: point where you want to go (drives and runs that way), BRAKE, DRIFT/SPRINT.
+    case stick
+    /// The original steering strip with GAS, BRAKE and DRIFT pedals (tank-style on foot).
+    case classic
+
+    public var label: String {
+        switch self {
+        case .racer: "Racer"
+        case .stick: "Stick"
+        case .classic: "Classic"
+        }
+    }
+
+    public var blurb: String {
+        switch self {
+        case .racer: "Push the joystick where you want to drive, with GAS and BRAKE pedals on the right. On foot: the same joystick to run, big FIRE button, AIM to lock on, SPRINT to get away."
+        case .stick: "Push the stick where you want to go. The car turns and drives that way; pull back to brake and reverse. On foot you run where you point."
+        case .classic: "Steering strip turns left and right; GAS, BRAKE and DRIFT pedals. On foot the strip turns you and RUN moves forward."
+        }
     }
 }
 

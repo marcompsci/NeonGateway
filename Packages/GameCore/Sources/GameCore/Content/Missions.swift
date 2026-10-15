@@ -162,7 +162,8 @@ extension MissionDef {
                                            .streetFlyers]
 
     public static func with(_ id: MissionID) -> MissionDef? {
-        all.first { $0.id == id }
+        if id == .streetChallenge { return StreetChallenge.current() }
+        return all.first { $0.id == id }
     }
 }
 

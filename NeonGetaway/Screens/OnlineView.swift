@@ -79,6 +79,11 @@ struct OnlineView: View {
                 }
             case .failed(let why):
                 Text(why).pixelLabel(.footnote, color: Palette.sunset)
+                // Nobody about? There's always someone to race in the Street Challenge.
+                Button("Race Nova's ghost instead") { router.go(.drive(.mission(.streetChallenge))) }
+                    .buttonStyle(.neon(Palette.magenta))
+                    .accessibilityHint("This week's Street Challenge: a time trial against a ghost car")
+                    .accessibilityIdentifier("online.challenge")
                 findButton
             default:
                 findButton

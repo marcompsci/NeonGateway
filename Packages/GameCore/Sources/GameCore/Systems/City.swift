@@ -13,6 +13,10 @@ public struct CityVehicle: Sendable, Equatable, Identifiable {
     public var owned: Bool
     /// Paint design on it (the player's own cars only).
     public var design: PaintDesign? = nil
+    /// Handed back (a delivered freight rig): gone from the street, can't be entered.
+    public var retired = false
+    /// Aftermarket rims (the player's own car).
+    public var rims: RimSetup? = nil
 
     public var isWrecked: Bool { damage >= spec.maxIntegrity }
     public var hull: Int { max(0, spec.maxIntegrity - damage) }
@@ -87,10 +91,16 @@ public struct CityActions: Sendable, Equatable {
     public var enterExit = false
     /// FIRE is held.
     public var fire = false
+    /// AUTO FIRE is on: shoot by itself whenever a cruiser or another player is in the sights.
+    public var autoFire = false
+    /// A fist tapped this step (on foot): left hook, right hook or punch.
+    public var strike: Strike?
 
-    public init(enterExit: Bool = false, fire: Bool = false) {
+    public init(enterExit: Bool = false, fire: Bool = false, autoFire: Bool = false, strike: Strike? = nil) {
         self.enterExit = enterExit
         self.fire = fire
+        self.autoFire = autoFire
+        self.strike = strike
     }
 }
 
@@ -127,6 +137,17 @@ public enum CityEvent: Sendable, Equatable {
     case hitPlayer(String, damage: Int, weapon: WeaponID?)
     /// Live play: the player is standing on another player's dropped gun and asks for it.
     case claimDrop(String)
+    /// A cruiser pulled over and its officers got out.
+    case officersOut(Int)
+    /// "Freeze!": the officers' warning has started.
+    case copsWarning
+    /// The warning ran out, or the player shot at cops: officers are shooting.
+    case copsOpenFire
+    /// An officer fired at the player.
+    case copShot(ShotTrace)
+    case officerDown(Int)
+    /// A fist thrown on foot, and whether it landed.
+    case punch(Strike, hit: Bool)
 }
 
 /// A witness on the phone to Harbor Patrol.
@@ -228,13 +249,15 @@ public struct City: Sendable {
     /// The player's body; only meaningful on foot (it rides along while driving).
     public internal(set) var foot: VehicleState
     public internal(set) var health = City.maxHealth
+    /// Sprint stamina on foot, 0...1. Refills whenever the player isn't sprinting.
+    public internal(set) var stamina = 1.0
     public var inventory: Inventory
     public internal(set) var crowd: Crowd
     public internal(set) var pickups: [WeaponPickup] = []
     public internal(set) var dealer: Dealer?
     public var pursuit: Pursuit
     /// Knocks taken this run (walls, patrols, people), for scoring.
-    public private(set) var hits = 0
+    public internal(set) var hits = 0
     /// Upgrades applied to vehicles the player owns.
     public let tuning: UpgradeLevels
     /// The player's skill levels.
@@ -252,11 +275,24 @@ public struct City: Sendable {
     public private(set) var lastAttacker: String?
 
     private var fireCooldown = 0.0
+    /// Harbor Patrol officers out on foot.
+    public internal(set) var officers: [Officer] = []
+    public internal(set) var standoff: Standoff = .none
+    var nextOfficerID = 0
+    var copHullHits = 0
+    var surrenderTime = 0.0
+    /// Seconds since the player last fired.
+    var sinceShot = 99.0
+    var punchCooldown = 0.0
+    /// How dazed each person is from punches (by pedestrian id).
+    var daze: [Int: Double] = [:]
+    /// Where AIM is locked on right now (on foot, AIM held), for the scene's reticle.
+    public internal(set) var aimLock: Vec2?
     private var impactCooldown = 0.0
     private var ramCooldown = 0.0
     private var nextVehicleID = 0
     private var nextPickupID = 1000
-    private var rng: SplitMix64
+    var rng: SplitMix64
 
     /// - Parameters:
     ///   - playerVehicle: the car the player starts in (their own), or nil to start on foot.
@@ -321,7 +357,8 @@ public struct City: Sendable {
     public var enterableVehicle: Int? {
         guard isOnFoot else { return nil }
         return vehicles.indices
-            .filter { !vehicles[$0].isWrecked && (vehicles[$0].state.position - foot.position).length < Self.enterDistance }
+            .filter { !vehicles[$0].isWrecked && !vehicles[$0].retired
+                && (vehicles[$0].state.position - foot.position).length < Self.enterDistance }
             .min { (vehicles[$0].state.position - foot.position).length < (vehicles[$1].state.position - foot.position).length }
     }
 
@@ -351,7 +388,9 @@ public struct City: Sendable {
     /// Marks the current vehicle as the player's own (stored at the Safehouse garage). Returns
     /// its model, or nil if it was already theirs or they're on foot.
     public mutating func keepCurrentVehicle() -> VehicleID? {
-        guard let i = currentVehicleIndex, !vehicles[i].owned else { return nil }
+        guard let i = currentVehicleIndex, !vehicles[i].owned, VehicleID.drivable.contains(vehicles[i].model) else {
+            return nil
+        }
         vehicles[i].owned = true
         let damage = vehicles[i].damage
         vehicles[i].spec = UpgradeShop.spec(vehicles[i].model.spec, levels: tuning)
@@ -366,20 +405,24 @@ public struct City: Sendable {
         impactCooldown -= dt
         ramCooldown -= dt
         fireCooldown -= dt
+        punchCooldown -= dt
+        recoverDaze(dt: dt)
 
         if actions.enterExit { events += toggleVehicle() }
 
         if let i = currentVehicleIndex {
+            aimLock = nil
             events += drive(i, input: input, dt: dt)
         } else {
             walk(input: input, dt: dt)
-            if actions.fire { events += fire() }
+            if let s = actions.strike { events += strike(s) }
+            if actions.fire || (actions.autoFire && threatInSights) { events += fire() }
         }
         settleParkedVehicles()
 
         // Harbor Patrol, against whichever body the player is in.
         var body = player
-        let pursuitEvents = pursuit.step(player: &body, dt: dt)
+        let pursuitEvents = pursuit.step(player: &body, onFoot: isOnFoot, dt: dt)
         setPlayerBody(body)
         for event in pursuitEvents {
             switch event {
@@ -409,6 +452,9 @@ public struct City: Sendable {
             }
         }
         events += stepReports(dt: dt)
+        let copEvents = stepOfficers(dt: dt)
+        events += copEvents
+        if copEvents.contains(.busted) { return events }
 
         if let i = currentVehicleIndex, vehicles[i].isWrecked {
             events += bail(from: i, wrecked: true)
@@ -431,6 +477,57 @@ public struct City: Sendable {
         } else {
             foot = body
         }
+    }
+
+    // MARK: Solara State: lent and parked vehicles
+
+    /// The player's own car as the garage has it: worn parts change how it drives, rims show.
+    public mutating func setPlayerCar(wear: CarWear?, rims: RimSetup?) {
+        guard let i = vehicles.firstIndex(where: { $0.id == 0 && $0.owned }) else { return }
+        if let wear { vehicles[i].spec = wear.apply(to: vehicles[i].spec) }
+        vehicles[i].rims = rims
+    }
+
+    /// A freight rig (or any vehicle) appears at `position` and the player is put in it. A car the
+    /// player was driving stays parked where it was.
+    @discardableResult
+    public mutating func lendVehicle(_ model: VehicleID, at position: Vec2, heading: Double) -> Int {
+        if let i = currentVehicleIndex { vehicles[i].state.velocity = .zero }
+        let i = vehicles.count
+        vehicles.append(CityVehicle(id: nextVehicleID, model: model, spec: model.spec,
+                                    state: VehicleState(position: position, heading: heading), owned: true))
+        nextVehicleID += 1
+        foot.position = position
+        mode = .driving(vehicle: i)
+        return i
+    }
+
+    /// Parks a vehicle at `position` for the player to take (the ride home after freight). It's
+    /// theirs to drive, so taking it isn't theft.
+    @discardableResult
+    public mutating func parkVehicle(_ model: VehicleID, at position: Vec2, heading: Double) -> Int {
+        vehicles.append(CityVehicle(id: nextVehicleID, model: model, spec: model.spec,
+                                    state: VehicleState(position: position, heading: heading), owned: true))
+        nextVehicleID += 1
+        return vehicles.count - 1
+    }
+
+    /// Hands a vehicle back: it leaves the street. If the player is in it they step out beside it.
+    public mutating func retireVehicle(_ i: Int) -> [CityEvent] {
+        guard vehicles.indices.contains(i) else { return [] }
+        var events: [CityEvent] = []
+        if currentVehicleIndex == i { events = bail(from: i, wrecked: false) }
+        vehicles[i].retired = true
+        vehicles[i].state.velocity = .zero
+        return events
+    }
+
+    /// Puts the player somewhere else on the map (fast travel), on foot or in their current car.
+    public mutating func teleport(to position: Vec2, heading: Double) {
+        if let i = currentVehicleIndex {
+            vehicles[i].state = VehicleState(position: position, heading: heading)
+        }
+        foot = VehicleState(position: position, heading: heading)
     }
 
     // MARK: Getting in and out
@@ -486,6 +583,7 @@ public struct City: Sendable {
         v.state = contact.state
         if contact.impactSpeed > 90, impactCooldown <= 0 {
             hits += 1
+            stats.knocks += 1
             impactCooldown = 0.3
             pursuit.add(.wallHit)
             if contact.impactSpeed > Self.hardHitSpeed { v.damage += 1 }
@@ -493,13 +591,14 @@ public struct City: Sendable {
             events.append(.impact(min(1, contact.impactSpeed / 450)))
         }
         // Other vehicles get shoved.
-        for j in vehicles.indices where j != i {
+        for j in vehicles.indices where j != i && !vehicles[j].retired {
             var other = vehicles[j].state
             let radius = (v.spec.radius + vehicles[j].spec.radius) / 2
             let impact = Collision.separate(&v.state, &other, radius: radius)
             vehicles[j].state = other
             if impact > 90, impactCooldown <= 0 {
                 hits += 1
+            stats.knocks += 1
                 impactCooldown = 0.3
                 if impact > Self.hardHitSpeed { v.damage += 1 }
                 events.append(.impact(min(1, impact / 450)))
@@ -535,14 +634,25 @@ public struct City: Sendable {
 
     private mutating func walk(input: VehicleInput, dt: Double) {
         var body = FootDynamics.step(foot, input: VehicleInput(throttle: input.throttle, brake: input.brake,
-                                                              steer: input.steer), dt: dt,
-                                     speedScale: Skills.runMultiplier(skills.stamina))
+                                                              steer: input.steer, move: input.move,
+                                                              sprint: input.sprint), dt: dt,
+                                     speedScale: Skills.runMultiplier(skills.stamina), stamina: &stamina)
         stats.run += body.speed * dt
+        // AIM: face the nearest target while the stick keeps moving the body.
+        aimLock = nil
+        if input.aim, let found = lockTarget(from: body.position) {
+            aimLock = found
+            let delta = found - body.position
+            let wanted = atan2(delta.y, delta.x)
+            let error = remainder(wanted - body.heading, 2 * .pi)
+            let turn = FootDynamics.stickTurnRate * dt
+            body.heading = remainder(abs(error) <= turn ? wanted : body.heading + (error > 0 ? turn : -turn), 2 * .pi)
+        }
         body = Collision.resolve(body, radius: FootDynamics.radius,
                                  solids: district.solids(near: body.position, radius: FootDynamics.radius),
                                  restitution: 0).state
         // Vehicles are solid to walk into.
-        for v in vehicles {
+        for v in vehicles where !v.retired {
             let gap = body.position - v.state.position
             let minimum = v.spec.radius + FootDynamics.radius
             let d = gap.length
@@ -555,7 +665,7 @@ public struct City: Sendable {
 
     /// Parked vehicles that got shoved slide to a stop and stay out of walls.
     private mutating func settleParkedVehicles() {
-        for j in vehicles.indices where j != currentVehicleIndex {
+        for j in vehicles.indices where j != currentVehicleIndex && !vehicles[j].retired {
             var s = vehicles[j].state
             guard s.velocity.length > 0.5 else { continue }
             s.velocity = s.velocity * 0.9
@@ -568,19 +678,23 @@ public struct City: Sendable {
 
     // MARK: Weapons
 
-    private enum Target { case person(Int), patrol(Int), dealer, remote(String) }
+    private enum Target { case person(Int), patrol(Int), officer(Int), dealer, remote(String) }
 
     /// What a hit does to whoever it lands on.
     private mutating func apply(target: Target, damage: Int, from origin: Vec2) -> [CityEvent] {
         switch target {
         case .person(let k):
             return knockDownPerson(k)
+        case .officer(let id):
+            return hitOfficer(id, damage: damage, from: origin)
         case .patrol(let id):
+            var provoked = provokeCops(from: origin)
             pursuit.add(.missionEvent(Self.patrolShotHeat))
             let position = pursuit.patrols.first { $0.id == id }?.car.position
-            guard pursuit.damagePatrol(id: id, amount: damage, shooter: origin) else { return [] }
+            guard pursuit.damagePatrol(id: id, amount: damage, shooter: origin) else { return provoked }
             pursuit.add(.missionEvent(Self.patrolDisabledHeat))
-            var events: [CityEvent] = [.patrolDisabled(id)]
+            provoked.append(.patrolDisabled(id))
+            var events = provoked
             if let position {
                 // Every cruiser carries a sidearm or a shotgun.
                 let weapon: WeaponID = rng.next() % 2 == 0 ? .pistol : .shotgun
@@ -595,7 +709,7 @@ public struct City: Sendable {
     }
 
     /// A bystander goes down (cartoon rules). Some of them were carrying.
-    private mutating func knockDownPerson(_ k: Int) -> [CityEvent] {
+    mutating func knockDownPerson(_ k: Int) -> [CityEvent] {
         let person = crowd.people[k]
         guard crowd.knockDown(k) else { return [] }
         var events: [CityEvent] = [.pedestrianDown(person.id)]
@@ -617,7 +731,7 @@ public struct City: Sendable {
         return [.dealerRobbed] + witnessed + drop(weapon, ammo: weapon.spec.ammoPack * 2, at: d.position)
     }
 
-    private mutating func drop(_ weapon: WeaponID, ammo: Int, at position: Vec2) -> [CityEvent] {
+    mutating func drop(_ weapon: WeaponID, ammo: Int, at position: Vec2) -> [CityEvent] {
         // Nudge it off walls so it can be reached.
         var spot = position
         if district.tile(at: spot).isSolid { spot = playerPosition }
@@ -625,6 +739,56 @@ public struct City: Sendable {
                                     isDrop: true, lifetime: Self.dropLifetime))
         nextPickupID += 1
         return [.droppedWeapon(weapon)]
+    }
+
+    /// The nearest target within `cone` either side of `facing`, in range and in sight.
+    /// `threatsOnly` leaves out bystanders and the dealer (cruisers and other players only).
+    private func bestTarget(from origin: Vec2, facing: Double, cone: Double, range: Double,
+                            threatsOnly: Bool) -> (Target, Vec2, Double)? {
+        var best: (Target, Vec2, Double)?
+        let map = district
+        func consider(_ target: Target, at p: Vec2) {
+            let delta = p - origin
+            let distance = delta.length
+            guard distance <= range, distance > 1 else { return }
+            let angle = remainder(atan2(delta.y, delta.x) - facing, 2 * .pi)
+            guard abs(angle) <= cone else { return }
+            guard PatrolBrain.lineOfSight(from: origin, to: p, district: map) else { return }
+            if best == nil || distance < best!.2 { best = (target, p, distance) }
+        }
+        if !threatsOnly {
+            for (k, person) in crowd.people.enumerated() where !person.isDown {
+                consider(.person(k), at: person.position)
+            }
+            if let d = dealer, d.isHere { consider(.dealer, at: d.position) }
+        }
+        for patrol in pursuit.patrols {
+            consider(.patrol(patrol.id), at: patrol.car.position)
+        }
+        for officer in officers where !officer.isDown {
+            consider(.officer(officer.id), at: officer.position)
+        }
+        for remote in remotes where !remote.isDown { consider(.remote(remote.id), at: remote.position) }
+        return best
+    }
+
+    /// AIM's lock: the nearest cruiser or other player in range all round; with none about,
+    /// the nearest anyone. nil with nothing loaded or nobody in range.
+    func lockTarget(from origin: Vec2) -> Vec2? {
+        guard let weapon = inventory.equipped, inventory.isLoaded(weapon) else { return nil }
+        let range = inventory.spec(for: weapon).range
+        let all = Double.pi * 1.01
+        return (bestTarget(from: origin, facing: 0, cone: all, range: range, threatsOnly: true)
+                ?? bestTarget(from: origin, facing: 0, cone: all, range: range, threatsOnly: false))?.1
+    }
+
+    /// A cruiser or another player sits in the sights of the loaded weapon right now (AUTO FIRE).
+    public var threatInSights: Bool {
+        guard isOnFoot, let weapon = inventory.equipped, inventory.isLoaded(weapon) else { return false }
+        let spec = inventory.spec(for: weapon)
+        let cone = spec.aimHalfAngle * aimAssist * Skills.aimMultiplier(skills.shooting)
+        return bestTarget(from: foot.position, facing: foot.heading, cone: cone, range: spec.range,
+                          threatsOnly: true) != nil
     }
 
     private mutating func fire() -> [CityEvent] {
@@ -637,29 +801,11 @@ public struct City: Sendable {
         fireCooldown = spec.fireInterval
         let origin = foot.position
         let facing = foot.heading
-        let map = district
         var events: [CityEvent] = []
 
         // Auto-aim: the nearest person or cruiser in front, in range and in sight.
-        var best: (Target, Vec2, Double)?
         let cone = spec.aimHalfAngle * aimAssist * Skills.aimMultiplier(skills.shooting)
-        func consider(_ target: Target, at p: Vec2) {
-            let delta = p - origin
-            let distance = delta.length
-            guard distance <= spec.range, distance > 1 else { return }
-            let angle = remainder(atan2(delta.y, delta.x) - facing, 2 * .pi)
-            guard abs(angle) <= cone else { return }
-            guard PatrolBrain.lineOfSight(from: origin, to: p, district: map) else { return }
-            if best == nil || distance < best!.2 { best = (target, p, distance) }
-        }
-        for (k, person) in crowd.people.enumerated() where !person.isDown {
-            consider(.person(k), at: person.position)
-        }
-        for patrol in pursuit.patrols {
-            consider(.patrol(patrol.id), at: patrol.car.position)
-        }
-        if let d = dealer, d.isHere { consider(.dealer, at: d.position) }
-        for remote in remotes where !remote.isDown { consider(.remote(remote.id), at: remote.position) }
+        let best = bestTarget(from: origin, facing: facing, cone: cone, range: spec.range, threatsOnly: false)
 
         if spec.isMelee {
             // A swing: quiet, no tracer, only what's right in front.
@@ -677,6 +823,11 @@ public struct City: Sendable {
 
         if pursuit.isSeen { pursuit.add(.missionEvent(Self.gunfireHeat)) }
         crowd.scare(from: origin, radius: 380)
+        sinceShot = 0
+        // Gunfire right in front of officers: they don't wait out the warning.
+        if !standoff.isFiring, officers.contains(where: { !$0.isDown && ($0.position - origin).length < 500 }) {
+            events += provokeCops(from: origin)
+        }
 
         if let found = best {
             let (target, point, _) = found
@@ -708,7 +859,7 @@ public struct City: Sendable {
     /// Something illegal happened at `position`. A patrol that sees it reacts at once. Otherwise
     /// the nearest bystander with a clear view calls it in after `reportDelay`; with nobody
     /// watching, nothing happens.
-    private mutating func crime(heat: Double, at position: Vec2, victim: Int?) -> [CityEvent] {
+    mutating func crime(heat: Double, at position: Vec2, victim: Int?) -> [CityEvent] {
         if pursuit.isSeen {
             pursuit.add(.missionEvent(heat))
             return []
@@ -777,6 +928,9 @@ public struct City: Sendable {
         lastAttacker = nil
         reports.removeAll()
         pursuit.calmDown()
+        officers.removeAll()
+        standoff = .none
+        surrenderTime = 0
     }
 
     /// Another player's dropped gun appears in the street.

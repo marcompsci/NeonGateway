@@ -18,6 +18,13 @@ enum Screen: Hashable {
     case skills
     case controls
     case online
+    case radio
+    case dashboard
+    case atlas
+    case dealership
+    case rims
+    case mechanic
+    case style
 }
 
 @MainActor

@@ -53,6 +53,13 @@ enum DistrictArt {
         case .container: UIColor(hex: 0x1F1A22)
         case .fence: UIColor(hex: 0x5A2347)
         case .water: UIColor(hex: 0x0B2638)
+        case .highway: UIColor(hex: 0x6A7080)
+        case .bridge: UIColor(hex: 0xC8322B)
+        case .grass: UIColor(hex: 0x2F5A2C)
+        case .sand: UIColor(hex: 0x9C7E52)
+        case .forest: UIColor(hex: 0x173A1E)
+        case .rock: UIColor(hex: 0x5E5752)
+        case .landmark: Palette.UI.magenta
         }
     }
 
@@ -212,6 +219,10 @@ enum DistrictArt {
             if neighbor(d, c, 0, -1) == .dock || neighbor(d, c, 0, -1) == .building {
                 fill(g, Palette.UI.cream.withAlphaComponent(0.25), o.x, o.y, t, 2)
             }
+
+        case .highway, .bridge, .grass, .sand, .forest, .rock, .landmark:
+            // The old pixel renderer only ever drew Port Aurora; Solara uses HDWorld.
+            fill(g, mapColor(d.tile(c)), o.x, o.y, t, t)
         }
     }
 

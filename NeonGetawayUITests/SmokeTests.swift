@@ -66,6 +66,63 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["map.freeDrive"].waitForExistence(timeout: 5), "back on the job map")
     }
 
+    /// Free roam turns the phone sideways and shows the racing buttons; leaving goes back to portrait.
+    func testFreeRoamIsLandscapeWithRacerButtons() {
+        tapMenu("menu.play")
+        button("map.freeDrive").tap()
+        let gas = app.descendants(matching: .any)["controls.gas"]
+        XCTAssertTrue(gas.waitForExistence(timeout: 5), "GAS pedal showing")
+        XCTAssertTrue(app.descendants(matching: .any)["controls.stick"].exists, "driving joystick")
+        XCTAssertFalse(app.descendants(matching: .any)["controls.left"].exists, "no arrows any more")
+        XCTAssertTrue(app.descendants(matching: .any)["controls.brake"].exists, "BRAKE pedal")
+        Thread.sleep(forTimeInterval: 1.0)
+        let wide = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(wide.width, wide.height, "gameplay is landscape")
+        button("hud.pause").tap()
+        button("pause.quit").tap()
+        XCTAssertTrue(app.buttons["map.freeDrive"].waitForExistence(timeout: 5), "back on the job map")
+        Thread.sleep(forTimeInterval: 1.0)
+        let tall = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(tall.height, tall.width, "menus are portrait again")
+    }
+
+    /// The HUD's now-playing chip pulls out the phone with Aurora FM; the street waits for it.
+    func testInGamePhoneShowsTheRadio() {
+        tapMenu("menu.play")
+        button("map.freeDrive").tap()
+        button("hud.phone").tap()
+        // The phone opens on its home screen: Dashboard, Atlas, Radio.
+        button("phone.app.dashboard").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard.stats"].waitForExistence(timeout: 5), "dashboard")
+        button("phone.home").tap()
+        button("phone.app.atlas").tap()
+        button("atlas.suggest.0").tap()
+        // Offline UI runs use Atlas's built-in answers ("You own…" / "You don't own…").
+        let reply = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Atlas: You")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 8), "Atlas answers about the business")
+        button("phone.home").tap()
+        button("phone.app.radio").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["radio.track.treehouse"].waitForExistence(timeout: 5), "songs listed")
+        XCTAssertTrue(app.descendants(matching: .any)["radio.add.treehouse"].exists, "+ button for each song")
+        let credit = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "feat. Babyface Ray"))
+        XCTAssertTrue(credit.firstMatch.exists, "credits shown")
+        button("phone.close").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["controls.gas"].waitForExistence(timeout: 5), "back to driving")
+        button("hud.pause").tap()
+        button("pause.quit").tap()
+    }
+
+    /// The weekly Street Challenge opens from the map, starts, and can be quit.
+    func testStreetChallengeStartsFromTheMap() {
+        tapMenu("menu.play")
+        button("map.challenge").tap()
+        button("brief.start").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["controls.gas"].waitForExistence(timeout: 5), "driving")
+        button("hud.pause").tap()
+        button("pause.quit").tap()
+        XCTAssertTrue(app.buttons["map.challenge"].waitForExistence(timeout: 5), "back on the job map")
+    }
+
     func testEveryJobOpensItsBriefAndCanBeQuit() {
         tapMenu("menu.play")
         // The three starter jobs are open on a fresh save; harder ones depend on reputation.
@@ -91,14 +148,32 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Double Cross"].waitForExistence(timeout: 5))
     }
 
-    /// The on-foot job starts with the player out of a car: the controls say RUN, not GAS.
+    /// The on-foot job starts with the player out of a car: the shooter layout (SPRINT, FIRE,
+    /// AIM, the weapon bar), not BRAKE and DRIFT.
     func testOnFootJobShowsFootControls() {
         tapMenu("menu.play")
         selectJob("streetFlyers")
         button("map.startJob").tap()
         button("brief.start").tap()
-        XCTAssertTrue(app.staticTexts["Run"].waitForExistence(timeout: 5) || app.otherElements["Run"].exists
-                      || app.buttons["Run"].exists, "foot controls showing")
+        let sprint = app.descendants(matching: .any)["controls.sprint"]
+        XCTAssertTrue(sprint.waitForExistence(timeout: 5), "foot controls showing")
+        XCTAssertTrue(app.descendants(matching: .any)["controls.fire"].exists, "big FIRE button")
+        XCTAssertTrue(app.descendants(matching: .any)["controls.aim"].exists, "AIM button")
+        for fist in ["controls.hookLeft", "controls.punch", "controls.hookRight"] {
+            XCTAssertTrue(app.descendants(matching: .any)[fist].exists, fist)
+        }
+        app.buttons["controls.punch"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["controls.autofire"].exists, "AUTO FIRE toggle")
+        XCTAssertTrue(app.descendants(matching: .any)["weapon.pistol"].exists, "pistol on the weapon bar")
+        XCTAssertFalse(app.descendants(matching: .any)["Drift"].exists, "no car buttons on foot")
+        // On foot the camera starts close behind you (2nd person); VIEW cycles 1st and 3rd person.
+        let view = button("hud.view")
+        XCTAssertTrue(view.label.contains("2nd person"), view.label)
+        view.tap()
+        XCTAssertTrue(app.buttons["hud.view"].label.contains("1st person"))
+        app.buttons["hud.view"].tap()
+        XCTAssertTrue(app.buttons["hud.view"].label.contains("3rd person"))
+        app.buttons["hud.view"].tap()
         button("hud.pause").tap()
         button("pause.quit").tap()
     }
@@ -149,12 +224,29 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["controls.reset"].waitForExistence(timeout: 5), "control layout editor")
     }
 
+    /// The garage's dealership, wheels and mechanic open; the mechanic explains a part.
+    func testGarageDealershipWheelsAndMechanic() {
+        tapMenu("menu.garage")
+        button("garage.dealership").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["dealer.buy.kestrel"].waitForExistence(timeout: 5), "dealer cars listed")
+        button("nav.back").tap()
+        button("garage.rims").tap()
+        XCTAssertTrue(app.buttons["rims.style.deepDish"].waitForExistence(timeout: 5), "rim styles")
+        app.buttons["rims.style.deepDish"].tap()
+        XCTAssertTrue(app.buttons["rims.fit"].isEnabled, "a new style can be fitted")
+        button("nav.back").tap()
+        button("garage.mechanic").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["mechanic.greeting"].waitForExistence(timeout: 5))
+        button("mechanic.part.brakes").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["mechanic.lesson"].waitForExistence(timeout: 5), "Dex explains the part")
+    }
+
     /// Every app on the phone opens and comes back: league, businesses, bank, ledger,
     /// rankings, trophies and skills.
     func testEveryPhoneAppOpens() {
         tapMenu("menu.phone")
         for id in ["phone.league", "phone.properties", "phone.bank", "phone.business", "phone.rankings",
-                   "phone.trophies", "phone.skills"] {
+                   "phone.trophies", "phone.skills", "phone.radio", "phone.style", "phone.dashboard"] {
             button(id).tap()
             button("nav.back").tap()
             XCTAssertTrue(app.buttons["phone.league"].waitForExistence(timeout: 5), "back on the phone after \(id)")

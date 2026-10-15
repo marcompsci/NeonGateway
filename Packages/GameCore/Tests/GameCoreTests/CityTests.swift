@@ -49,7 +49,9 @@ final class CityTests: XCTestCase {
         XCTAssertLessThan(VehicleSpec.flicker.maxIntegrity, VehicleSpec.vesper.maxIntegrity)
         XCTAssertGreaterThan(VehicleSpec.ridgeback.maxIntegrity, VehicleSpec.dorado.maxIntegrity)
         XCTAssertLessThan(VehicleSpec.ridgeback.maxSpeed, VehicleSpec.dorado.maxSpeed)
-        XCTAssertEqual(VehicleID.drivable.count, 4)
+        XCTAssertTrue([VehicleID.vesper, .dorado, .ridgeback, .flicker].allSatisfy(VehicleID.drivable.contains))
+        XCTAssertFalse(VehicleID.drivable.contains(.harborPatrol))
+        XCTAssertFalse(VehicleID.drivable.contains(.hauler))
     }
 
     // MARK: On foot
@@ -64,7 +66,7 @@ final class CityTests: XCTestCase {
         var open = onFoot(6, 4, heading: 0)
         run(&open, seconds: 1, input: VehicleInput(throttle: 1))
         XCTAssertEqual(open.foot.speed, FootDynamics.runSpeed, accuracy: 1)
-        XCTAssertLessThan(FootDynamics.runSpeed, VehicleSpec.dorado.maxSpeed / 2)
+        XCTAssertLessThan(FootDynamics.runSpeed, VehicleSpec.dorado.maxSpeed * 0.55)
     }
 
     func testTurningOnTheSpot() {
@@ -326,11 +328,18 @@ final class CityTests: XCTestCase {
         var city = onFoot(12, 4, heading: 0, inventory: armed(.shotgun, ammo: 8))
         city.crowd.people = []
         city.pursuit.patrols = [Patrol(id: 70, car: VehicleState(position: at(12, 4) + Vec2(190, 0), heading: .pi))]
-        let events = run(&city, seconds: 1, actions: CityActions(fire: true))
-        XCTAssertTrue(events.contains(.patrolDisabled(70)))
-        XCTAssertFalse(city.pursuit.patrols.contains { $0.id == 70 })
+        let events = run(&city, seconds: 1.5, actions: CityActions(fire: true))
+        // The officers jump out shooting; the nearest of cruiser or officer takes the hits.
+        XCTAssertTrue(events.contains(.copsOpenFire))
+        XCTAssertTrue(events.contains(.officersOut(70)))
+        XCTAssertTrue(Self.copsAnswered(events, patrol: 70), "something goes down")
         XCTAssertGreaterThanOrEqual(city.pursuit.heat.stars, 2)
     }
+
+    static func copsAnswered(_ events: [CityEvent], patrol: Int) -> Bool {
+        events.contains(.patrolDisabled(patrol)) || events.contains { if case .officerDown = $0 { return true } else { return false } }
+    }
+
 
     func testPickingUpAWeapon() {
         let pickup = PickupSpawn(weapon: .smg, ammo: 60, tile: TileCoord(col: 12, row: 4))

@@ -132,6 +132,10 @@ public struct OwnedVehicle: Codable, Sendable, Equatable {
     public var model: VehicleID
     /// The paint design on it (a `PaintDesign.id`), if any.
     public var design: String?
+    /// Aftermarket wheels (nil = the factory rims).
+    public var rims: RimSetup?
+    /// How worn each part is (nil = brand new). The mechanic reads and fixes this.
+    public var wear: CarWear?
 
     public init(model: VehicleID, design: String? = nil) {
         self.model = model

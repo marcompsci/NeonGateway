@@ -3,6 +3,7 @@ import GameCore
 
 @main
 struct NeonGetawayApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
 
     var body: some Scene {
@@ -24,7 +25,9 @@ struct RootView: View {
         ZStack {
             Palette.asphalt.ignoresSafeArea()
 
-            if showingSplash {
+            if let page = DebugLaunch.artSheet {
+                ArtSheetView(page: page)
+            } else if showingSplash {
                 LaunchView { showingSplash = false }
                     .transition(.opacity)
                     .onAppear(perform: applyDebugLaunch)
@@ -58,11 +61,14 @@ struct RootView: View {
         if DebugLaunch.legendary { model.makeLegendaryForTesting() }
         // Hands-free launches (UI tests, the check script's job runs) skip the creator.
         if model.progress.profile == nil
-            && (DebugLaunch.skipOnboarding || DebugLaunch.autoJob != nil || DebugLaunch.openScreen != nil) {
+            && (DebugLaunch.skipOnboarding || DebugLaunch.autoJob != nil || DebugLaunch.autoState || DebugLaunch.openScreen != nil) {
             model.completeOnboarding(PlayerProfile(name: "Tester", starter: .pistol))
         }
         #endif
-        if let id = DebugLaunch.autoJob {
+        if DebugLaunch.autoState {
+            showingSplash = false
+            router.path = [.missionSelect, .drive(.state)]
+        } else if let id = DebugLaunch.autoJob {
             showingSplash = false
             router.path = [.missionSelect, .drive(.mission(id))]
         } else if let screen = DebugLaunch.openScreen {
@@ -91,6 +97,13 @@ struct RootView: View {
         case .skills: SkillsView()
         case .controls: ControlLayoutView()
         case .online: OnlineView()
+        case .radio: RadioScreen()
+        case .dashboard: DashboardScreen()
+        case .atlas: AtlasScreen()
+        case .dealership: DealershipView()
+        case .rims: RimsView()
+        case .mechanic: MechanicView()
+        case .style: StyleView()
         }
     }
 }

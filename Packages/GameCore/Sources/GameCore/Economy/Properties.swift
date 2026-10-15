@@ -308,6 +308,8 @@ public struct RunStats: Sendable, Equatable {
     public var run = 0.0
     public var hitsLanded = 0
     public var ticketsPaid = 0
+    /// Knocks taken while driving (wear on the car).
+    public var knocks = 0
 
     public init() {}
 }

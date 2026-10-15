@@ -12,6 +12,7 @@ import GameCore
 ///     -NGUnlockAll YES       every job on the map is playable, whatever the reputation
 ///     -NGSkipOnboarding YES  make a stand-in player (pistol) if there isn't one yet
 ///     -NGRedoOnboarding YES  forget the player so onboarding runs again
+///     -NGTime night          force day, dawn, dusk or night
 enum DebugLaunch {
     static var openScreen: Screen? {
         #if DEBUG
@@ -25,6 +26,13 @@ enum DebugLaunch {
         case "paintStudio": .paintStudio
         case "rankings": .rankings
         case "phone": .phone
+        case "radio": .radio
+        case "dashboard": .dashboard
+        case "atlas": .atlas
+        case "dealership": .dealership
+        case "rims": .rims
+        case "mechanic": .mechanic
+        case "style": .style
         case "league": .league
         case "bank": .bank
         case "properties": .properties
@@ -39,9 +47,97 @@ enum DebugLaunch {
         #endif
     }
 
+    /// -NGAutoJob solara: straight into Solara State.
+    static var autoState: Bool {
+        #if DEBUG
+        UserDefaults.standard.string(forKey: "NGAutoJob") == "solara"
+        #else
+        false
+        #endif
+    }
+
+    /// -NGAutoFreight YES: take the first freight haul at Port Aurora's depot on arrival.
+    static var autoFreight: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "NGAutoFreight")
+        #else
+        false
+        #endif
+    }
+
+    /// -NGCops YES: a wanted player with a cruiser pulling up (to see the officers' warning).
+    static var cops: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "NGCops")
+        #else
+        false
+        #endif
+    }
+
+    /// -NGNoSpin YES: character previews stay facing the camera (screenshots).
+    static var noSpin: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "NGNoSpin")
+        #else
+        false
+        #endif
+    }
+
+    /// -NGOnFoot YES: step out of the car as the drive starts (screenshots of people).
+    static var onFoot: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "NGOnFoot")
+        #else
+        false
+        #endif
+    }
+
+    /// -NG2D YES: the old top-down view for this launch.
+    static var force2D: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "NG2D")
+        #else
+        false
+        #endif
+    }
+
+    /// -NGFootView close|eyes|overhead: the on-foot camera for this launch.
+    static var footView: FootView? {
+        #if DEBUG
+        UserDefaults.standard.string(forKey: "NGFootView").flatMap(FootView.init(rawValue:))
+        #else
+        nil
+        #endif
+    }
+
     static var autoJob: MissionID? {
         #if DEBUG
         UserDefaults.standard.string(forKey: "NGAutoJob").flatMap(MissionID.init(rawValue:))
+        #else
+        nil
+        #endif
+    }
+
+    /// -NGTime day|dawn|dusk|night: force the light (for screenshots).
+    static var timeOfDay: TimeOfDay? {
+        #if DEBUG
+        switch UserDefaults.standard.string(forKey: "NGTime") {
+        case "day": .day
+        case "dawn": .dawn
+        case "dusk": .dusk
+        case "night": .night
+        default: nil
+        }
+        #else
+        nil
+        #endif
+    }
+
+    /// -NGArtSheet 1|2|3: show the art review sheet instead of the game.
+    static var artSheet: Int? {
+        #if DEBUG
+        let v = UserDefaults.standard.integer(forKey: "NGArtSheet")
+        return v > 0 ? v : nil
         #else
         nil
         #endif

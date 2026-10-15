@@ -17,6 +17,8 @@ rm -f Logs/check_args Logs/sim_after.png
 MODE=$(cat Logs/check_mode 2>/dev/null)
 rm -f Logs/check_mode
 AFTER_DELAY="${NG_AFTER_DELAY:-28}"
+# Optional: Logs/check_delay overrides that wait for one run (seconds).
+if [ -f Logs/check_delay ]; then AFTER_DELAY=$(cat Logs/check_delay); rm -f Logs/check_delay; fi
 
 echo "Neon Getaway check — $(date)" > "$SUMMARY"
 xcodebuild -version >> "$SUMMARY" 2>&1

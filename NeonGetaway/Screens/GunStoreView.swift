@@ -65,7 +65,7 @@ struct GunStoreView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 Image(uiImage: PixelArt.weaponImage(weapon, finish: inv.build(for: weapon).finish, scale: 4))
-                    .interpolation(.none)
+                    .interpolation(.high)
                     .frame(width: 64, alignment: .leading)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {

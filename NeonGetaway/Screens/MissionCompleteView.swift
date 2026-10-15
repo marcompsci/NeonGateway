@@ -7,6 +7,8 @@ struct MissionCompleteView: View {
     let def: MissionDef
     let result: MissionResult
     let update: ProgressionRules.Update?
+    /// Street Challenge only: medal, Nova gap, weekly best.
+    var challenge: StreetChallenge.Outcome? = nil
     let onRetry: () -> Void
     let onReturn: () -> Void
 
@@ -32,7 +34,9 @@ struct MissionCompleteView: View {
                     Fact(label: "Hits", value: "\(result.hits)")
                     Fact(label: "Drift", value: "\(Int(result.driftScore))")
                 }
-                if update?.newBestTime == true && success {
+                if let challenge, success {
+                    ChallengeMedalCard(outcome: challenge, time: result.elapsed)
+                } else if update?.newBestTime == true && success {
                     Badge(text: "New best time")
                 }
 
@@ -111,7 +115,7 @@ struct MissionCompleteView: View {
             switch def.kind {
             case .escape, .double: "Clean getaway"
             case .pickupRun: "Sweep done"
-            case .timedDelivery: "Delivered"
+            case .timedDelivery: def.id == .streetChallenge ? "Finished" : "Delivered"
             }
         case .timeUp: "Time's up"
         case .busted: "Busted"
@@ -123,6 +127,8 @@ struct MissionCompleteView: View {
 
     private var failureLine: String {
         switch result.outcome {
+        case .timeUp where def.id == .streetChallenge:
+            "The clock ran out before the last checkpoint. Follow Nova's magenta ghost to learn the route, then try again."
         case .timeUp:
             switch def.kind {
             case .pickupRun: "The night market closed before the envelopes got home. No pay this time."
@@ -134,6 +140,55 @@ struct MissionCompleteView: View {
         case .knockedOut: "You took one knock too many on foot. No pay this time. A car is safer than your legs."
         default: "No pay this time."
         }
+    }
+}
+
+/// The Street Challenge result: the medal, how you did against Nova, and your weekly best.
+struct ChallengeMedalCard: View {
+    let outcome: StreetChallenge.Outcome
+    let time: Double
+
+    private var colour: Color {
+        switch outcome.medal {
+        case .gold: Color(hex: 0xFFD24A)
+        case .silver: Color(hex: 0xC9CED8)
+        case .bronze: Color(hex: 0xD38A4E)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle().fill(colour.opacity(0.22))
+                Circle().strokeBorder(colour, lineWidth: 3)
+                Image(systemName: "medal.fill").font(.system(size: 28, weight: .bold)).foregroundStyle(colour)
+            }
+            .frame(width: 64, height: 64)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(outcome.medal.label) medal").pixelLabel(.title3, color: colour)
+                Text(gapLine).pixelLabel(.callout, color: Palette.cream)
+                if outcome.newBest {
+                    Text(outcome.previousBest.map { String(format: "New weekly best (was %.1f s)", $0) }
+                         ?? "First time on this week's route")
+                        .pixelLabel(.caption, color: Palette.teal)
+                }
+                if outcome.bonus > 0 {
+                    Text("Medal bonus +\(outcome.bonus) cr").pixelLabel(.caption, color: Palette.sunset)
+                }
+            }
+        }
+        .padding(12)
+        .overlay(Rectangle().strokeBorder(colour.opacity(0.6), lineWidth: 2))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("challenge.medal")
+    }
+
+    private var gapLine: String {
+        let gap = abs(outcome.gapToRival)
+        return outcome.gapToRival <= 0
+            ? String(format: "You beat %@ by %.1f s", StreetChallenge.rivalName, gap)
+            : String(format: "%@ was %.1f s faster", StreetChallenge.rivalName, gap)
     }
 }
 

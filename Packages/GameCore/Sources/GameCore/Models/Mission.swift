@@ -9,6 +9,11 @@ public enum MissionID: String, Codable, Sendable, CaseIterable {
     case lanternFestival
     case doubleCross
     case streetFlyers
+    /// The weekly time trial (not on the job ladder; its route changes every week).
+    case streetChallenge
+
+    /// Jobs on the map (everything but the Street Challenge).
+    public static var jobs: [MissionID] { allCases.filter { $0 != .streetChallenge } }
 }
 
 public enum MissionKind: String, Codable, Sendable {

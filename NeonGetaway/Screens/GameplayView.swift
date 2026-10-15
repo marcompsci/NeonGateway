@@ -11,7 +11,7 @@ struct GameplayView: View {
     @State private var session: GameSession?
     @State private var live: LiveCoordinator?
     @State private var showControlsTip = !UserDefaults.standard.bool(forKey: GameplayView.tipKey)
-    static let tipKey = "neon.seenControlsTip"
+    static let tipKey = "neon.seenControlsTip.v4"
 
     private func dismissTip() {
         UserDefaults.standard.set(true, forKey: Self.tipKey)
@@ -28,22 +28,56 @@ struct GameplayView: View {
                            debugOptions: Self.debugOptions)
                     .ignoresSafeArea()
                     .accessibilityLabel("Port Aurora street view")
+                if let street = session.street3D {
+                    Street3DView(street: street, fps: model.settings.frameRate)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                // A soft cinematic vignette that keeps the eye on the middle of the street.
+                RadialGradient(colors: [.clear, .clear, .black.opacity(0.42)], center: .center,
+                               startRadius: 0, endRadius: 560)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
 
                 if session.phase != .photo {
                     Group {
                         HUDView(hud: session.hud, district: session.district,
                                 onPause: { session.pause() },
-                                onCycleWeapon: { session.cycleWeapon() })
+                                onCycleWeapon: { session.cycleWeapon() },
+                                showWeaponChip: model.settings.controlStyle == .classic,
+                                onPhone: { withAnimation(.easeOut(duration: 0.2)) { session.setPhoneOpen(true) } },
+                                onView: { session.cycleFootView() },
+                                onToggle3D: { session.toggle3D() })
                         TouchControlsView(input: session.input, hud: session.hud,
                                           layout: ControlLayout(model.settings),
-                                          onContext: { session.performContext() })
-                            .disabled(session.phase != .driving)
+                                          onContext: { session.performContext() },
+                                          onCycle: { session.cycleWeapon() },
+                                          onEquip: { session.equipWeapon($0) },
+                                          onAutoFire: { on in
+                                              model.settings.autoFire = on
+                                              session.input.autoFire = on
+                                          })
+                            .disabled(session.phase != .driving || session.phoneOpen)
                     }
                     .dynamicTypeSize(...DynamicTypeSize.large)
                 }
 
+                if let depot = session.boardDepot {
+                    JobBoardView(depot: depot, jobs: session.boardJobs,
+                                 onTake: { session.closeBoard(taking: $0) },
+                                 onClose: { session.closeBoard() })
+                        .zIndex(6)
+                }
+
+                if session.phoneOpen && session.phase == .driving {
+                    InGamePhone(context: session.atlasContext) { withAnimation(.easeIn(duration: 0.2)) { session.setPhoneOpen(false) } }
+                        .zIndex(5)
+                }
+
                 if showControlsTip && session.phase == .driving {
-                    ControlsTip { dismissTip() }
+                    ControlsTip(style: model.settings.controlStyle) { dismissTip() }
                         .transition(.opacity)
                 }
 
@@ -58,6 +92,7 @@ struct GameplayView: View {
                 case .paused:
                     PauseMenu(
                         isJob: session.mission != nil,
+                        onDropJob: session.hasStateJob ? { session.dropStateJob(); session.resume() } : nil,
                         onResume: { session.resume() },
                         onPhoto: { session.enterPhotoMode() },
                         onRestart: { session.restart() },
@@ -82,6 +117,7 @@ struct GameplayView: View {
                                          })
                     } else if let mission = session.mission, let result = session.result {
                         MissionCompleteView(def: mission, result: result, update: session.update,
+                                            challenge: session.challengeOutcome,
                                             onRetry: { session.restart() },
                                             onReturn: { router.back() })
                     }
@@ -92,6 +128,7 @@ struct GameplayView: View {
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
+        .landscapeWhileVisible()
         .onAppear {
             if session == nil {
                 let (weather, light) = model.conditions()
@@ -114,6 +151,26 @@ struct GameplayView: View {
                 s.keepVehicle = { [model] vehicle in model.keepVehicle(vehicle) }
                 s.payTicket = { [model] in model.payTicket() }
                 s.saveStats = { [model] stats in model.award(stats) }
+                s.setFootView(DebugLaunch.footView ?? model.settings.footView)
+                s.scene.applyPlayerCar(wear: model.selectedCar?.wear, rims: model.selectedCar?.rims)
+                s.set3D(DebugLaunch.force2D ? false : model.settings.street3D, look: HumanLook.player(model.progress.profile))
+                s.save3D = { [model] on in model.settings.street3D = on }
+                if DebugLaunch.cops { s.scene.debugStandoff() }
+                if DebugLaunch.onFoot { s.input.enterExitTapped = true }
+                s.saveFootView = { [model] view in model.settings.footView = view }
+                if mode == .mission(.streetChallenge) {
+                    s.challengeGhosts = { [model] in model.challengeGhostCars() }
+                    s.recordChallenge = { [model] time, ghost in model.recordChallenge(time: time, ghost: ghost) }
+                    s.recordChallengeAttempt = { [model] in model.recordChallengeAttempt() }
+                    s.scene.setGhosts(model.challengeGhostCars())
+                }
+                s.payStateJob = { [model] job, payout in model.recordStateJob(job, payout: payout) }
+                if mode == .state, DebugLaunch.autoFreight,
+                   let job = StateJobs.board(at: .depotAurora, seed: 1).first(where: { $0.kind == .freight }) {
+                    s.scene.acceptJob(job)
+                }
+                s.input.style = model.settings.controlStyle
+                s.input.autoFire = model.settings.autoFire
                 session = s
                 if mode == .live, model.live.isPlaying, let id = model.onlineID {
                     let coordinator = LiveCoordinator(service: model.live, myID: id,
@@ -125,10 +182,13 @@ struct GameplayView: View {
                 }
             }
             if model.settings.soundOn { model.audio.start() }
+            // Aurora FM plays over the street (UI tests run offline: no Apple Music prompt).
+            if model.settings.radioOn && !DebugLaunch.offline { model.radio.resume() }
         }
         .onDisappear {
             session?.leave()
             model.audio.stop()
+            model.radio.pause()
             if live != nil {
                 live?.stop()
                 live = nil
@@ -169,6 +229,8 @@ struct OverlayBackdrop<Content: View>: View {
 
 struct PauseMenu: View {
     let isJob: Bool
+    /// Solara: give up the job in progress.
+    var onDropJob: (() -> Void)? = nil
     let onResume: () -> Void
     var onPhoto: () -> Void = {}
     let onRestart: () -> Void
@@ -182,6 +244,10 @@ struct PauseMenu: View {
                     .accessibilityAddTraits(.isHeader)
                 Button("Resume", action: onResume).buttonStyle(.neon(Palette.magenta))
                     .accessibilityIdentifier("pause.resume")
+                if let onDropJob {
+                    Button("Drop this job", action: onDropJob).buttonStyle(.neon(Palette.sunset))
+                        .accessibilityIdentifier("pause.dropJob")
+                }
                 Button("Photo mode", action: onPhoto).buttonStyle(.neon(Palette.teal))
                     .accessibilityHint("Hide the HUD and take a picture of the street")
                     .accessibilityIdentifier("pause.photo")
@@ -199,7 +265,10 @@ struct PauseMenu: View {
 
 struct BriefingCard: View {
     static func tip(for def: MissionDef) -> String {
-        switch def.kind {
+        if def.id == .streetChallenge {
+            return "Hit the checkpoints in order; the teal arrow points to the next one. Nova's ghost is magenta, your best run is teal. Ghosts can't hit you, but traffic and patrols can."
+        }
+        return switch def.kind {
         case .escape:
             "Patrols see in a cone ahead. Break their line of sight and your heat cools. Follow the teal arrow."
         case .double:
@@ -282,6 +351,7 @@ struct FreeDriveEndCard: View {
 /// Shown on the first drive only: how the controls work. Tap anywhere on it to dismiss;
 /// it also clears itself after a few seconds.
 struct ControlsTip: View {
+    var style: ControlStyle = .racer
     let onDismiss: () -> Void
 
     var body: some View {
@@ -289,11 +359,26 @@ struct ControlsTip: View {
             Text("How to drive").pixelLabel(.headline, color: Palette.teal)
                 .accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 6) {
-                Label("Drag the left strip to steer", systemImage: "arrow.left.and.right")
-                Label("Hold GAS to go", systemImage: "arrow.up")
-                Label("BRAKE slows; hold it at a stop to reverse", systemImage: "arrow.down")
-                Label("Hold DRIFT in a turn to slide", systemImage: "tornado")
-                Label("GET OUT to go on foot; walk up to any car to GET IN", systemImage: "figure.walk")
+                if style == .racer {
+                    Label("Push the joystick where you want to go: the car turns and drives that way", systemImage: "circle.circle")
+                    Label("GAS pedal for full power, BRAKE to slow; pull the stick back to reverse", systemImage: "pedal.accelerator")
+                    Label("Hold DRIFT in a turn to slide", systemImage: "tornado")
+                    Label("On foot: stick to run, FIRE to shoot, AIM to lock on, SPRINT to get away", systemImage: "figure.run")
+                    Label("Tap a weapon on the bottom bar to switch; AUTO FIRE shoots cruisers for you", systemImage: "scope")
+                } else if style == .stick {
+                    Label("Put your thumb anywhere on the left and push where you want to go", systemImage: "circle.circle")
+                    Label("The car turns and drives that way. Push further to go faster", systemImage: "arrow.up.left.and.arrow.down.right")
+                    Label("Pull back to brake, keep pulling to reverse", systemImage: "arrow.down")
+                    Label("Hold DRIFT in a turn to slide", systemImage: "tornado")
+                    Label("On foot you run where you point; hold SPRINT to get away", systemImage: "figure.run")
+                    Label("Prefer the old strip and pedals? Settings › Controls", systemImage: "gearshape")
+                } else {
+                    Label("Drag the left strip to steer", systemImage: "arrow.left.and.right")
+                    Label("Hold GAS to go", systemImage: "arrow.up")
+                    Label("BRAKE slows; hold it at a stop to reverse", systemImage: "arrow.down")
+                    Label("Hold DRIFT in a turn to slide", systemImage: "tornado")
+                    Label("GET OUT to go on foot; walk up to any car to GET IN", systemImage: "figure.walk")
+                }
             }
             .font(.pixel(.footnote, weight: .medium))
             .foregroundStyle(Palette.cream)
@@ -309,7 +394,7 @@ struct ControlsTip: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Closes the driving tips")
         .task {
-            try? await Task.sleep(for: .seconds(7))
+            try? await Task.sleep(for: .seconds(9))
             onDismiss()
         }
     }

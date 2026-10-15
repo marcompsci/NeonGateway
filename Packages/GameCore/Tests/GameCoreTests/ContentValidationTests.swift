@@ -129,7 +129,7 @@ final class ContentValidationTests: XCTestCase {
     func testJobsAreDistinct() {
         XCTAssertEqual(Set(MissionDef.all.map(\.kind)), [.timedDelivery, .escape, .pickupRun, .double])
         XCTAssertEqual(Set(MissionDef.all.map(\.title)).count, MissionDef.all.count)
-        XCTAssertEqual(MissionDef.all.map(\.id), MissionID.allCases, "every job is on the map, in order")
+        XCTAssertEqual(MissionDef.all.map(\.id), MissionID.jobs, "every job is on the map, in order")
         XCTAssertEqual(Set(MissionDef.all.map(\.id)).count, MissionDef.all.count)
         XCTAssertGreaterThan(MissionDef.tideLineRun.startingHeat, HeatRules.starThresholds[0])
         XCTAssertNil(MissionDef.tideLineRun.timeLimit)

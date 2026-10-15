@@ -106,7 +106,8 @@ extension PixelArt {
         case .dorado: ["b", "c"]
         case .ridgeback: ["b", "c", "s"]
         case .flicker: ["m"]
-        case .harborPatrol: []
+        case .harborPatrol, .hauler: []
+        default: model.isMotorcycle ? ["m"] : ["m", "w"]
         }
     }
 
@@ -114,16 +115,23 @@ extension PixelArt {
         switch model {
         case .vesper: carRows
         case .dorado: sedanRows
-        case .ridgeback: vanRows
+        case .ridgeback, .hauler: vanRows
         case .flicker: bikeRows
         case .harborPatrol: patrolRows
+        default: model.isMotorcycle ? bikeRows : carRows
         }
     }
 
-    /// A vehicle in a paint design: the design grid is stretched over the body cells.
-    static func vehicleImage(_ model: VehicleID, design: PaintDesign?, scale: CGFloat = 1) -> UIImage {
-        let base = vehicleImage(model, scale: 1)
-        guard let design, let cg = base.cgImage else { return scale == 1 ? base : vehicleImage(model, scale: scale) }
+    /// Menu pictures of a vehicle (garage, body shop, paint studio): the high-resolution street
+    /// art, as tall as the old pixel sprite was at `scale`.
+    static func vehicleImage(_ model: VehicleID, design: PaintDesign?, scale: CGFloat = 1, rims: RimSetup? = nil) -> UIImage {
+        HDArt.vehiclePreview(model, design: design, height: CGFloat(rows(model).count) * scale, rims: rims)
+    }
+
+    /// The old pixel version (kept for reference and tests of the design mapping).
+    static func pixelVehicleImage(_ model: VehicleID, design: PaintDesign?, scale: CGFloat = 1) -> UIImage {
+        let base = pixelVehicleImage(model, scale: 1)
+        guard let design, let cg = base.cgImage else { return scale == 1 ? base : pixelVehicleImage(model, scale: scale) }
         let grid = rows(model)
         let body = bodyCells(model)
         let h = grid.count, w = grid.map(\.count).max() ?? 1
@@ -164,8 +172,15 @@ extension PixelArt {
     static let finishNames = ["Factory", "Magenta", "Teal", "Sunset", "Gold", "Violet", "Lime", "Chrome"]
 
     static func weaponImage(_ weapon: WeaponID, finish: Int, scale: CGFloat = 4) -> UIImage {
-        PixelArt.image(rows: weaponRows(weapon),
-                       palette: ["k": finishColors[max(0, min(finish, finishColors.count - 1))]], scale: scale)
+        GunArt.image(weapon, finish: finish, height: weaponHeight(weapon, scale: scale))
+    }
+
+    /// Drawn guns are taller than the old pixel rows so they read at the same width.
+    static func weaponHeight(_ weapon: WeaponID, scale: CGFloat) -> CGFloat {
+        let rows = CGFloat(weaponRows(weapon).count)
+        let cols = CGFloat(weaponRows(weapon).first?.count ?? 1)
+        // Keep the old width: height = width / aspect.
+        return max(rows * scale, cols * scale / GunArt.aspect(weapon))
     }
 
     static func vehicleTexture(_ model: VehicleID) -> SKTexture {
@@ -184,7 +199,7 @@ extension PixelArt {
                 "b": Palette.UI.sunset, "w": Palette.UI.teal.withAlphaComponent(0.8), "c": UIColor(hex: 0xC9652A),
                 "k": Palette.UI.ink, "o": Palette.UI.cream
             ])
-        case .ridgeback:
+        case .ridgeback, .hauler:
             image = PixelArt.image(rows: vanRows, palette: [
                 "b": UIColor(hex: 0x2A8C84), "w": Palette.UI.cream.withAlphaComponent(0.85), "c": Palette.UI.cream,
                 "s": Palette.UI.teal, "k": Palette.UI.ink, "o": Palette.UI.sunset
@@ -194,6 +209,8 @@ extension PixelArt {
                 "m": Palette.UI.magenta, "w": Palette.UI.cream, "s": Palette.UI.ink, "k": UIColor(hex: 0x050608),
                 "o": Palette.UI.sunset
             ])
+        default:
+            image = HDArt.vehicleImage(model)
         }
         let texture = SKTexture(image: image)
         texture.filteringMode = .nearest
@@ -321,20 +338,23 @@ extension PixelArt {
 
     static func weaponTexture(_ weapon: WeaponID) -> SKTexture {
         if let cached = weaponCache[weapon] { return cached }
-        let rows = weaponRows(weapon)
-        let texture = SKTexture(image: PixelArt.image(rows: rows, palette: ["k": Palette.UI.cream]))
-        texture.filteringMode = .nearest
+        let image = GunArt.image(weapon, height: weaponHeight(weapon, scale: 1) * 3)
+        let texture = SKTexture(image: image)
+        texture.filteringMode = .linear
         weaponCache[weapon] = texture
         return texture
     }
 
     /// The same icon for SwiftUI (gun store, HUD).
     static func weaponImage(_ weapon: WeaponID, scale: CGFloat = 4) -> UIImage {
-        let rows = weaponRows(weapon)
-        return PixelArt.image(rows: rows, palette: ["k": Palette.UI.cream], scale: scale)
+        GunArt.image(weapon, height: weaponHeight(weapon, scale: scale))
     }
 
     static func vehicleImage(_ model: VehicleID, scale: CGFloat = 4) -> UIImage {
+        HDArt.vehiclePreview(model, design: nil, height: CGFloat(rows(model).count) * scale)
+    }
+
+    static func pixelVehicleImage(_ model: VehicleID, scale: CGFloat = 4) -> UIImage {
         let texture = vehicleTexture(model)
         let cg = texture.cgImage()
         let size = CGSize(width: CGFloat(cg.width) * scale, height: CGFloat(cg.height) * scale)

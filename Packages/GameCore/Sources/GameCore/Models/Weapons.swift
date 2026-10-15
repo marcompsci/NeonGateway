@@ -171,6 +171,14 @@ public struct Inventory: Codable, Sendable, Equatable {
         return true
     }
 
+    /// Puts a particular weapon in hand (the weapon bar). False if it isn't owned or is empty.
+    @discardableResult
+    public mutating func equip(_ w: WeaponID) -> Bool {
+        guard isLoaded(w) else { return false }
+        equipped = w
+        return true
+    }
+
     /// Next usable weapon after the equipped one; stays put if there's none.
     public mutating func cycle() {
         let loaded = owned.filter { isLoaded($0) }

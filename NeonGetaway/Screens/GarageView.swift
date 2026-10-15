@@ -13,12 +13,26 @@ struct GarageView: View {
         ScrollView {
             VStack(spacing: 18) {
                 ScreenHeader(title: "Garage") { router.back() }
-                Image(uiImage: PixelArt.vehicleImage(model.progress.selectedModel, design: model.selectedDesign, scale: 7))
+                Image(uiImage: PixelArt.vehicleImage(model.progress.selectedModel, design: model.selectedDesign, scale: 7,
+                                                     rims: model.selectedCar?.rims))
                     .interpolation(.none)
                     .accessibilityHidden(true)
                 Text(spec.displayName).pixelLabel(.title2)
                     .accessibilityLabel("Driving: \(spec.displayName)")
                 OwnedCarsStrip(lastMessage: $lastMessage)
+                if !CarLineup.unclaimedLegends(model.progress).isEmpty {
+                    Button("A legend is waiting for you: claim it") { router.go(.dealership) }
+                        .buttonStyle(.neon(Color(hex: 0xE2B13C)))
+                        .padding(.horizontal, 40)
+                        .accessibilityIdentifier("garage.claimLegend")
+                }
+                HStack(spacing: 10) {
+                    garageTile("Dealership", icon: "car.2.fill", color: Palette.teal, id: "garage.dealership") { router.go(.dealership) }
+                    garageTile("Wheels", icon: "circle.hexagongrid.circle", color: Palette.sunset, id: "garage.rims") { router.go(.rims) }
+                    garageTile(mechanicNeedsWork ? "Mechanic !" : "Mechanic", icon: "wrench.and.screwdriver.fill",
+                               color: mechanicNeedsWork ? Palette.magenta : Palette.cream, id: "garage.mechanic") { router.go(.mechanic) }
+                }
+                .padding(.horizontal, 20)
                 Button("Body shop: paint & designs") { router.go(.bodyShop) }
                     .buttonStyle(.neon(Palette.magenta))
                     .padding(.horizontal, 40)
@@ -53,6 +67,24 @@ struct GarageView: View {
             }
         }
         .background(Palette.asphalt.ignoresSafeArea())
+    }
+
+    private var mechanicNeedsWork: Bool {
+        model.selectedCar.map { Mechanic.report($0).contains { $0.needsWork } } ?? false
+    }
+
+    private func garageTile(_ title: String, icon: String, color: Color, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 22, weight: .bold)).foregroundStyle(color)
+                Text(title).pixelLabel(.caption, color: Palette.cream)
+            }
+            .frame(maxWidth: .infinity, minHeight: 70)
+            .background(Palette.ink.opacity(0.6))
+            .overlay(Rectangle().strokeBorder(color.opacity(0.7), lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
     }
 
     private func message(for track: UpgradeTrack, result: Result<UpgradeTier, UpgradeShop.Refusal>) -> String {
@@ -176,7 +208,7 @@ struct OwnedCarsStrip: View {
                 VStack(spacing: 4) {
                     Image(uiImage: PixelArt.vehicleImage(car.model,
                                                          design: car.design.flatMap { BodyShop.design($0, progress: model.progress) },
-                                                         scale: 3))
+                                                         scale: 3, rims: car.rims))
                         .interpolation(.none)
                         .frame(height: 90)
                     Text(car.model.spec.displayName.components(separatedBy: " ").first ?? "")

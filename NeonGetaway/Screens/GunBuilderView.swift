@@ -22,7 +22,7 @@ struct GunBuilderView: View {
                 HStack {
                     Spacer()
                     Image(uiImage: PixelArt.weaponImage(weapon, finish: build.finish, scale: 9))
-                        .interpolation(.none)
+                        .interpolation(.high)
                         .accessibilityLabel("\(stock.name) in \(PixelArt.finishNames[build.finish]) finish")
                     Spacer()
                 }

@@ -33,12 +33,16 @@ public struct Crowd: Sendable {
     public internal(set) var people: [Pedestrian] = []
     let district: District
     let footpaths: [TileCoord]
+    let footpathBuckets: [Int: [TileCoord]]
     private var rng: SplitMix64
 
     public init(district: District, count: Int, avoid: Vec2, seed: UInt64) {
         self.district = district
         rng = SplitMix64(seed: seed ^ 0xC0FFEE)
         footpaths = Self.footpathTiles(district)
+        var buckets: [Int: [TileCoord]] = [:]
+        for c in footpaths { buckets[District.bucketKey(col: c.col, row: c.row), default: []].append(c) }
+        footpathBuckets = buckets
         for id in 0..<count {
             let spot = randomFootpath(awayFrom: avoid, minDistance: 160) ?? district.bounds.center
             people.append(Pedestrian(id: id, position: spot, heading: 0, target: spot,
@@ -58,13 +62,33 @@ public struct Crowd: Sendable {
 
     mutating func randomFootpath(awayFrom p: Vec2, minDistance: Double) -> Vec2? {
         guard !footpaths.isEmpty else { return nil }
+        // On a big map, walkers come back near the player (within a city block or two).
+        let pool = district.isLarge ? nearbyFootpaths(p, radius: minDistance + 900) : footpaths
+        guard !pool.isEmpty else { return nil }
         for _ in 0..<40 {
-            let c = footpaths[Int(rng.next() % UInt64(footpaths.count))]
+            let c = pool[Int(rng.next() % UInt64(pool.count))]
             let spot = district.center(of: c)
             if (spot - p).length >= minDistance { return spot }
         }
         return nil
     }
+
+    /// Footpath tiles in the buckets around `p` (big maps only).
+    private func nearbyFootpaths(_ p: Vec2, radius: Double) -> [TileCoord] {
+        let c = district.coord(at: p)
+        let size = District.bucketSize
+        let span = Int((radius / district.tileSize / Double(size)).rounded(.up))
+        var out: [TileCoord] = []
+        for dr in -span...span {
+            for dc in -span...span {
+                if let list = footpathBuckets[(c.row / size + dr) * 10_000 + (c.col / size + dc)] { out += list }
+            }
+        }
+        return out
+    }
+
+    /// Big maps: anyone left far behind (the player drove to another city) reappears nearby.
+    public static let strayDistance = 2600.0
 
     /// A neighbouring footpath tile to stroll to (any direction, so walkers wander).
     mutating func nextTarget(from p: Vec2) -> Vec2 {
@@ -79,6 +103,12 @@ public struct Crowd: Sendable {
     public mutating func step(dt: Double, player: Vec2) {
         for i in people.indices {
             var p = people[i]
+            if district.isLarge && p.mode != .down && (p.position - player).length > Self.strayDistance,
+               let spot = randomFootpath(awayFrom: player, minDistance: Self.respawnDistance) {
+                p.position = spot
+                p.mode = .walk
+                p.target = nextTarget(from: spot)
+            }
             switch p.mode {
             case .walk:
                 let delta = p.target - p.position

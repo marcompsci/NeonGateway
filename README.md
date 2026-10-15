@@ -68,16 +68,28 @@ Useful things to include: which job or screen you were on, what you expected, an
   <img src="docs/media/body-shop.jpg" width="15.5%" alt="Body shop and design market">
 </p>
 
+## 🏁 Street Challenge (new in v0.14)
+
+Every week Port Aurora gets a new time-trial route: five checkpoints in order, starting at the Safehouse. You race two see-through ghost cars:
+
+- **Nova** (magenta): the game's own driver, run through the same physics. Beat Nova's time for **gold**, finish within 20% for **silver**, finish at all for **bronze**. Each medal pays a bonus once a week.
+- **Your best** (teal): your fastest run this week, so you can see exactly where you lose time.
+
+Find it at the top of the job map (**Race the ghosts**), or from the Online screen when nobody else is around. A new route starts every Monday (UTC).
+
 ## 🎮 Controls cheat sheet
 
-| | In a car | On foot |
-|---|---|---|
-| **Left strip** | Steer | Turn |
-| **Right side** | GAS · BRAKE (hold at a stop to reverse) · DRIFT | RUN · BACK · FIRE |
-| **Context button** | GET OUT · KEEP CAR (in the Safehouse bay) | GET IN · SHOP |
-| **Controller** | Left stick steers · triggers gas/brake · B drifts · A gets in or out · right shoulder fires · Y switches weapon |  |
+**Turn your phone sideways:** free roam and jobs play in landscape (menus stay upright).
 
-You can move and resize the touch controls in **Settings → Controls**.
+| | In a car (Racer, default) | On foot |
+|---|---|---|
+| **Left thumb** | Joystick: push where you want to drive (pull back to reverse) | Stick: run the way you point · a second FIRE above it |
+| **Right thumb** | DRIFT · BRAKE pedal · GAS pedal | Big FIRE / SWING · AIM (hold to lock on and face the nearest target while you keep running) · SWAP weapon · SPRINT (uses stamina) |
+| **Bottom middle** | | Weapon bar (tap a weapon to hold it) · AUTO FIRE (shoots cruisers in your sights for you) |
+| **Context button** | GET OUT · KEEP CAR (in the Safehouse bay) | GET IN · SHOP |
+| **Controller** | Left stick steers · triggers gas/brake · B drifts · A gets in or out · Y switches weapon | Left stick runs · left trigger aims · right shoulder fires · B sprints |
+
+Car buttons are drawn at 65% opacity so the road shows through them. Change that, the button size and their positions, or switch to **Stick** (point where you want to drive) or **Classic** (steering strip and pedals) in **Settings → Customise touch controls**.
 
 ## 🧾 The rules of the street
 
@@ -96,7 +108,7 @@ You can move and resize the touch controls in **Settings → Controls**.
 1. Open `NeonGetaway.xcodeproj` in Xcode 26 or later.
 2. Pick an iPhone simulator (or your iPhone; signing uses team X6LZQ3FS36) and press Run.
 
-Controls (portrait): drag the left strip to steer; hold GAS, BRAKE (hold at a stop to reverse) and DRIFT on the right. On foot the same strip turns you, RUN and BACK move you, and FIRE shoots (once you have a gun). The context button above the pedals says what you can do where you are: GET IN, GET OUT, SHOP (in the gun store) or KEEP CAR (in the Safehouse bay).
+Controls (landscape since v0.13; Racer is the default: the joystick plus GAS/BRAKE pedals in a car, the shooter layout with FIRE, AIM, SWAP, SPRINT, a weapon bar and AUTO FIRE on foot). Stick style: a floating stick on the left points where to go (the car steers and drives that way; pull back to brake and reverse; on foot you run that way), with BRAKE and DRIFT on the right in a car, SPRINT and FIRE on foot. Classic style (Settings): drag the left strip to steer; hold GAS, BRAKE (hold at a stop to reverse) and DRIFT; on foot the strip turns you and RUN and BACK move you. The context button above the pedals says what you can do where you are: GET IN, GET OUT, SHOP (in the gun store) or KEEP CAR (in the Safehouse bay).
 
 ## How it plays
 

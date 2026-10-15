@@ -1,79 +1,104 @@
 import SwiftUI
 import GameCore
 
-/// Top-of-screen readouts: speed, clock, pause, the current objective and a minimap.
+/// Landscape readouts around the edge of the street: minimap, health and the speed dial on the
+/// left; the objective beside the map; the clock in the middle; pause and heat on the right.
 /// Every value is also written in words, so nothing depends on colour alone.
 struct HUDView: View {
     let hud: HUDState
     let district: District
     let onPause: () -> Void
     var onCycleWeapon: () -> Void = {}
+    /// Classic controls have no weapon bar, so the HUD shows the weapon chip instead.
+    var showWeaponChip = false
+    /// Pull out the phone (Aurora FM).
+    var onPhone: () -> Void = {}
+    /// On foot: switch between 2nd, 1st and 3rd person.
+    var onView: () -> Void = {}
+    /// Street-level 3D on or off.
+    var onToggle3D: () -> Void = {}
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                speedBox
-                Spacer(minLength: 4)
-                if let time = hud.timeRemaining { TimerBox(seconds: time) }
-                Spacer(minLength: 4)
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                MinimapView(hud: hud, district: district)
+                if hud.onFoot {
+                    HealthView(health: hud.health)
+                } else {
+                    HullView(hull: hud.hull, max: hud.hullMax)
+                    SpeedDial(speed: hud.speed, fraction: hud.speedFraction)
+                        .accessibilityLabel("\(hud.vehicleName ?? "Car"), speed \(hud.speed)")
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                objectiveBanner
+                if hud.isDrifting || hud.driftScore > 0 { driftBadge }
+                // Notices sit up here, beside the map, so they never cover the player.
+                if let seconds = hud.copWarning {
+                    CopWarningBanner(seconds: seconds, surrender: hud.surrenderFraction)
+                } else if hud.copsFiring {
+                    CopWarningBanner(seconds: nil, surrender: hud.surrenderFraction)
+                }
+                if let notice = hud.notice {
+                    NoticeBanner(text: notice, urgency: hud.bustFraction)
+                }
+            }
+            .frame(maxWidth: 270, alignment: .leading)
+            Spacer(minLength: 4)
+            if let time = hud.timeRemaining { TimerBox(seconds: time) }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 6) {
                 Button(action: onPause) {
-                    Image(systemName: "pause.fill")
+                    Image(systemName: "line.3.horizontal")
                         .font(.title2.weight(.black))
                         .foregroundStyle(Palette.cream)
-                        .frame(width: 48, height: 48)
-                        .background(Palette.ink.opacity(0.7))
+                        .frame(width: 48, height: 44)
+                        .background(Palette.ink.opacity(0.6))
                         .overlay(Rectangle().strokeBorder(Palette.magenta, lineWidth: 2))
                 }
                 .accessibilityLabel("Pause")
                 .accessibilityIdentifier("hud.pause")
-            }
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
-                    objectiveBanner
-                    if hud.isDrifting || hud.driftScore > 0 { driftBadge }
-                }
-                Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 6) {
-                    MinimapView(hud: hud, district: district)
-                    HeatMeterView(stars: hud.heatStars, label: hud.heatLabel, points: hud.heatPoints)
-                    if hud.witnessCalls > 0 { WitnessChip(count: hud.witnessCalls) }
+                HeatMeterView(stars: hud.heatStars, label: hud.heatLabel, points: hud.heatPoints)
+                NowPlayingChip(onTap: onPhone)
+                HStack(spacing: 6) {
+                    Button(action: onToggle3D) {
+                        Text(hud.is3D ? "3D" : "2D")
+                            .font(.system(size: 12, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Palette.ink)
+                            .frame(width: 44, height: 30)
+                            .background(hud.is3D ? Palette.sunset : Palette.cream, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(hud.is3D ? "Street view, 3D. Switch to top-down" : "Top-down view. Switch to 3D street view")
+                    .accessibilityIdentifier("hud.3d")
                     if hud.onFoot {
-                        HealthView(health: hud.health)
-                    } else {
-                        HullView(hull: hud.hull, max: hud.hullMax)
-                    }
-                    if hud.weaponCount > 0 {
-                        WeaponChip(name: hud.weaponName, ammo: hud.ammo, cap: hud.ammoCap, melee: hud.isMelee,
-                                   canCycle: hud.weaponCount > 1, onTap: onCycleWeapon)
+                        Button(action: onView) {
+                            HStack(spacing: 4) {
+                                Image(systemName: hud.footView == .overhead ? "map" : hud.footView == .eyes ? "eye" : "person.fill")
+                                    .font(.system(size: 12, weight: .bold))
+                                Text("VIEW \(hud.footView.short)").font(.system(size: 11, weight: .heavy, design: .rounded))
+                            }
+                            .foregroundStyle(Palette.cream)
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 32)
+                            .background(Palette.ink.opacity(0.65), in: Capsule())
+                            .overlay(Capsule().strokeBorder(Palette.teal.opacity(0.8), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Camera: \(hud.footView.label). Switch view")
+                        .accessibilityIdentifier("hud.view")
                     }
                 }
+                if hud.witnessCalls > 0 { WitnessChip(count: hud.witnessCalls) }
+                if showWeaponChip && hud.weaponCount > 0 {
+                    WeaponChip(name: hud.weaponName, ammo: hud.ammo, cap: hud.ammoCap, melee: hud.isMelee,
+                               canCycle: hud.weaponCount > 1, onTap: onCycleWeapon)
+                }
             }
-            if let notice = hud.notice {
-                NoticeBanner(text: notice, urgency: hud.bustFraction)
-                    .frame(maxWidth: .infinity)
-            }
-            Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
-    }
-
-    private var speedBox: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("\(hud.speed)")
-                .font(.system(size: 30, weight: .black, design: .monospaced))
-                .foregroundStyle(Palette.cream)
-                .monospacedDigit()
-            Text(hud.onFoot ? "ON FOOT" : "SPD").pixelLabel(.caption2, color: Palette.teal)
-        }
-        .frame(minWidth: 64, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(Palette.ink.opacity(0.7))
-        .overlay(Rectangle().strokeBorder(Palette.teal, lineWidth: 2))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(hud.onFoot ? "On foot, speed \(hud.speed)"
-                                       : "\(hud.vehicleName ?? "Car"), speed \(hud.speed)")
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var objectiveBanner: some View {
@@ -82,7 +107,11 @@ struct HUDView: View {
                 .font(.pixel(.footnote))
                 .foregroundStyle(Palette.cream)
                 .fixedSize(horizontal: false, vertical: true)
-            if let metres = hud.targetMetres, let bearing = hud.targetBearing {
+            if let km = hud.jobDistance, km >= 1, let bearing = hud.targetBearing {
+                Text(String(format: "%.1f km %@", km, bearing))
+                    .font(.pixel(.footnote))
+                    .foregroundStyle(Palette.teal)
+            } else if let metres = hud.targetMetres, let bearing = hud.targetBearing {
                 Text("\(metres) m \(bearing)")
                     .font(.pixel(.footnote))
                     .foregroundStyle(Palette.teal)
@@ -119,6 +148,42 @@ struct HUDView: View {
     }
 }
 
+/// The car's speed as a racing dial: a sweep of segments that light up as you go faster
+/// (teal, then sunset near the top end) around the number.
+struct SpeedDial: View {
+    let speed: Int
+    let fraction: Double
+    private let segments = 24
+    private let size: CGFloat = 92
+
+    var body: some View {
+        let lit = Int((max(0, min(1, fraction)) * Double(segments)).rounded())
+        ZStack {
+            Circle().fill(Palette.ink.opacity(0.55))
+            ForEach(0..<segments, id: \.self) { i in
+                let hot = i >= segments * 3 / 4
+                Capsule()
+                    .fill(i < lit ? (hot ? Palette.sunset : Palette.teal) : Palette.cream.opacity(0.18))
+                    .frame(width: 3.5, height: hot ? 11 : 8)
+                    .offset(y: -size / 2 + 9)
+                    .rotationEffect(.degrees(-135 + Double(i) * 270 / Double(segments - 1)))
+            }
+            VStack(spacing: -2) {
+                Text("\(speed)")
+                    .font(.system(size: 26, weight: .black, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.cream)
+                    .minimumScaleFactor(0.6)
+                Text("SPD").font(.system(size: 9, weight: .heavy, design: .rounded)).foregroundStyle(Palette.teal)
+            }
+        }
+        .frame(width: size, height: size)
+        .overlay(Circle().strokeBorder(Palette.teal.opacity(0.6), lineWidth: 1.5))
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
 /// Countdown. Under 10 s it turns sunset AND says HURRY, so it never relies on colour alone.
 struct TimerBox: View {
     let seconds: Double
@@ -144,49 +209,91 @@ struct TimerBox: View {
 }
 
 /// The district in flat colour: the car as a cream arrow, objectives as teal squares, and
-/// patrols that are after you as magenta dots.
+/// patrols that are after you as magenta dots. On Solara's big map it shows the area around
+/// you (about 40 tiles across) and pins off-screen targets to the edge.
 struct MinimapView: View {
     let hud: HUDState
     let district: District
-    private let width: CGFloat = 84
+    private let side: CGFloat = 92
 
     var body: some View {
-        let height = width * CGFloat(district.rows) / CGFloat(district.cols)
-        Image(uiImage: DistrictArt.mapImage(for: district, scale: 4))
+        if district.isLarge { localMap } else { wholeMap }
+    }
+
+    private var wholeMap: some View {
+        // Fit inside a square so a tall district doesn't push the HUD down.
+        let ratio = CGFloat(district.rows) / CGFloat(district.cols)
+        let width = ratio > 1 ? side / ratio : side
+        let height = ratio > 1 ? side : side * ratio
+        return Image(uiImage: DistrictArt.mapImage(for: district, scale: 4))
             .resizable()
             .interpolation(.none)
             .frame(width: width, height: height)
             .overlay {
                 Canvas { context, size in
-                    for patrol in hud.mapPatrols {
-                        let p = CGPoint(x: patrol.x * size.width, y: (1 - patrol.y) * size.height)
-                        context.fill(Path(ellipseIn: CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)),
-                                     with: .color(Palette.magenta))
-                    }
-                    for target in hud.mapTargets {
-                        let p = CGPoint(x: target.x * size.width, y: (1 - target.y) * size.height)
-                        context.fill(Path(CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)),
-                                     with: .color(Palette.teal))
-                        context.stroke(Path(CGRect(x: p.x - 5, y: p.y - 5, width: 10, height: 10)),
-                                       with: .color(Palette.ink), lineWidth: 1)
-                    }
-                    let c = CGPoint(x: hud.mapCar.x * size.width, y: (1 - hud.mapCar.y) * size.height)
-                    // Screen y is down, so flip the heading's sine.
-                    let a = hud.mapHeading
-                    func pt(_ angle: Double, _ r: Double) -> CGPoint {
-                        CGPoint(x: c.x + cos(angle) * r, y: c.y - sin(angle) * r)
-                    }
-                    var arrow = Path()
-                    arrow.move(to: pt(a, 6))
-                    arrow.addLine(to: pt(a + 2.4, 5))
-                    arrow.addLine(to: pt(a - 2.4, 5))
-                    arrow.closeSubpath()
-                    context.fill(arrow, with: .color(Palette.cream))
-                    context.stroke(arrow, with: .color(Palette.ink), lineWidth: 1)
+                    draw(context, size: size) { p in CGPoint(x: p.x * size.width, y: (1 - p.y) * size.height) }
                 }
             }
             .overlay(Rectangle().strokeBorder(Palette.teal.opacity(0.8), lineWidth: 2))
             .accessibilityHidden(true)  // the objective banner speaks the same information
+    }
+
+    /// Points per tile on the local map.
+    private var tilePoints: CGFloat { side / 40 }
+
+    private var localMap: some View {
+        let fullW = CGFloat(district.cols) * tilePoints, fullH = CGFloat(district.rows) * tilePoints
+        let car = hud.mapCar
+        let ox = side / 2 - car.x * fullW, oy = side / 2 - (1 - car.y) * fullH
+        return ZStack(alignment: .topLeading) {
+            Image(uiImage: DistrictArt.mapImage(for: district, scale: 2))
+                .resizable()
+                .interpolation(.none)
+                .frame(width: fullW, height: fullH)
+                .offset(x: ox, y: oy)
+            Canvas { context, size in
+                draw(context, size: size, clampTargets: true) { p in
+                    CGPoint(x: size.width / 2 + (p.x - car.x) * fullW, y: size.height / 2 + (car.y - p.y) * fullH)
+                }
+            }
+            .frame(width: side, height: side)
+        }
+        .frame(width: side, height: side, alignment: .topLeading)
+        .clipped()
+        .overlay(Rectangle().strokeBorder(Palette.teal.opacity(0.8), lineWidth: 2))
+        .accessibilityHidden(true)
+    }
+
+    private func draw(_ context: GraphicsContext, size: CGSize, clampTargets: Bool = false,
+                      _ place: (CGPoint) -> CGPoint) {
+        for patrol in hud.mapPatrols {
+            let p = place(patrol)
+            context.fill(Path(ellipseIn: CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)),
+                         with: .color(Palette.magenta))
+        }
+        for target in hud.mapTargets {
+            var p = place(target)
+            if clampTargets {
+                p.x = min(max(p.x, 6), size.width - 6)
+                p.y = min(max(p.y, 6), size.height - 6)
+            }
+            context.fill(Path(CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)), with: .color(Palette.teal))
+            context.stroke(Path(CGRect(x: p.x - 5, y: p.y - 5, width: 10, height: 10)),
+                           with: .color(Palette.ink), lineWidth: 1)
+        }
+        let c = place(hud.mapCar)
+        // Screen y is down, so flip the heading's sine.
+        let a = hud.mapHeading
+        func pt(_ angle: Double, _ r: Double) -> CGPoint {
+            CGPoint(x: c.x + cos(angle) * r, y: c.y - sin(angle) * r)
+        }
+        var arrow = Path()
+        arrow.move(to: pt(a, 6))
+        arrow.addLine(to: pt(a + 2.4, 5))
+        arrow.addLine(to: pt(a - 2.4, 5))
+        arrow.closeSubpath()
+        context.fill(arrow, with: .color(Palette.cream))
+        context.stroke(arrow, with: .color(Palette.ink), lineWidth: 1)
     }
 }
 
@@ -248,7 +355,8 @@ struct NoticeBanner: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(text).pixelLabel(.headline, color: Palette.ink)
+            Text(text).pixelLabel(.footnote, color: Palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
             if urgency > 0.05 {
                 GeometryReader { geo in
                     Rectangle().fill(Palette.ink.opacity(0.25))
@@ -259,11 +367,10 @@ struct NoticeBanner: View {
                 .frame(height: 6)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Palette.sunset)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Palette.sunset.opacity(0.94))
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 40)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
         .accessibilityAddTraits(.updatesFrequently)
@@ -348,5 +455,47 @@ struct WitnessChip: View {
             .background(Palette.sunset)
             .accessibilityLabel(count == 1 ? "A witness is calling Harbor Patrol"
                                            : "\(count) witnesses are calling Harbor Patrol")
+    }
+}
+
+/// Harbor Patrol on foot: the "Freeze!" countdown, then "shots fired". Standing still gives up.
+struct CopWarningBanner: View {
+    let seconds: Int?
+    let surrender: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(seconds == nil ? Palette.magenta : Palette.sunset)
+                if let seconds {
+                    Text("FREEZE! \(seconds)").font(.pixel(.headline)).foregroundStyle(Palette.cream)
+                        .contentTransition(.numericText())
+                } else {
+                    Text("SHOTS FIRED").font(.pixel(.headline)).foregroundStyle(Palette.magenta)
+                }
+            }
+            Text(seconds == nil ? "Run, take cover, or stand still to give up"
+                                : "Stand still to give up. Run or shoot and they fire")
+                .font(.pixel(.caption2))
+                .foregroundStyle(Palette.cream.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+            if surrender > 0.02 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Palette.ink
+                        Palette.teal.frame(width: geo.size.width * surrender)
+                    }
+                }
+                .frame(height: 5)
+                .accessibilityLabel("Giving up, \(Int(surrender * 100)) percent")
+            }
+        }
+        .padding(8)
+        .background(Palette.ink.opacity(0.82))
+        .overlay(Rectangle().strokeBorder(seconds == nil ? Palette.magenta : Palette.sunset, lineWidth: 2))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("hud.copWarning")
     }
 }

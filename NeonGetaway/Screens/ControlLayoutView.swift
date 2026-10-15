@@ -14,57 +14,95 @@ struct ControlLayoutView: View {
         let layout = ControlLayout(model.settings)
         ZStack {
             StreetMock()
-            TouchControlsView(input: preview, hud: mockHUD, layout: layout, onMove: { cluster, offset in
+            TouchControlsView(input: preview, hud: mockHUD, layout: layout,
+                              onAutoFire: { model.settings.autoFire = $0 },
+                              onMove: { cluster, offset in
                 let saved = LayoutOffset(x: offset.width, y: offset.height)
                 switch cluster {
                 case .steer: model.settings.steerOffset = saved
                 case .pedals: model.settings.pedalOffset = saved
                 }
             })
-            VStack(alignment: .leading, spacing: 10) {
+            // Settings sit in the middle at the top, between the two button clusters.
+            VStack(spacing: 6) {
                 ScreenHeader(title: "Touch controls") { router.back() }
-                Text("Drag the dashed boxes to move the controls.")
-                    .pixelLabel(.caption, color: Palette.cream)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Size \(Int(model.settings.controlScale * 100))%").pixelLabel(.caption)
-                    Slider(value: $model.settings.controlScale, in: ControlLayout.scaleRange, step: 0.05)
-                        .tint(Palette.teal)
-                        .accessibilityLabel("Button size")
-                    Text("Opacity \(Int(model.settings.controlOpacity * 100))%").pixelLabel(.caption)
-                    Slider(value: $model.settings.controlOpacity, in: ControlLayout.opacityRange, step: 0.05)
-                        .tint(Palette.teal)
-                        .accessibilityLabel("Button opacity")
-                }
-                Toggle(isOn: $model.settings.leftHanded) {
-                    Text("Steer on the right").pixelLabel(.caption)
-                }
-                .tint(Palette.magenta)
-                HStack(spacing: 10) {
-                    Button(onFoot ? "Show car buttons" : "Show on-foot buttons") { onFoot.toggle() }
-                        .buttonStyle(.neon(Palette.cream))
-                    Button("Reset") {
-                        model.settings.controlScale = 1
-                        model.settings.controlOpacity = 1
-                        model.settings.leftHanded = false
-                        model.settings.steerOffset = LayoutOffset()
-                        model.settings.pedalOffset = LayoutOffset()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Control style", selection: $model.settings.controlStyle) {
+                            ForEach(ControlStyle.allCases, id: \.self) { style in
+                                Text(style.label).tag(style)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("controls.style")
+                        Text(model.settings.controlStyle.blurb)
+                            .pixelLabel(.caption2, color: Palette.cream.opacity(0.8))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("Drag the dashed boxes to move the controls.")
+                            .pixelLabel(.caption, color: Palette.cream)
+                        Text("Size \(Int(model.settings.controlScale * 100))%").pixelLabel(.caption)
+                        Slider(value: $model.settings.controlScale, in: ControlLayout.scaleRange, step: 0.05)
+                            .tint(Palette.teal)
+                            .accessibilityLabel("Button size")
+                        Text("Car buttons \(Int(model.settings.driveOpacity * 100))% solid").pixelLabel(.caption)
+                        Slider(value: $model.settings.driveOpacity, in: ControlLayout.opacityRange, step: 0.05)
+                            .tint(Palette.teal)
+                            .accessibilityLabel("Car button opacity")
+                            .accessibilityIdentifier("controls.driveOpacity")
+                        Text("On-foot buttons \(Int(model.settings.controlOpacity * 100))% solid").pixelLabel(.caption)
+                        Slider(value: $model.settings.controlOpacity, in: ControlLayout.opacityRange, step: 0.05)
+                            .tint(Palette.teal)
+                            .accessibilityLabel("On-foot button opacity")
+                        Toggle(isOn: $model.settings.leftHanded) {
+                            Text("Swap sides (left-handed)").pixelLabel(.caption)
+                        }
+                        .tint(Palette.magenta)
+                        HStack(spacing: 10) {
+                            Button(onFoot ? "Show car buttons" : "Show on-foot buttons") { onFoot.toggle() }
+                                .buttonStyle(.neon(Palette.cream))
+                            Button("Reset") {
+                                let fresh = GameSettings()
+                                model.settings.controlStyle = fresh.controlStyle
+                                model.settings.controlScale = fresh.controlScale
+                                model.settings.controlOpacity = fresh.controlOpacity
+                                model.settings.driveOpacity = fresh.driveOpacity
+                                model.settings.leftHanded = false
+                                model.settings.steerOffset = LayoutOffset()
+                                model.settings.pedalOffset = LayoutOffset()
+                            }
+                            .buttonStyle(.neon(Palette.sunset))
+                            .accessibilityIdentifier("controls.reset")
+                        }
                     }
-                    .buttonStyle(.neon(Palette.sunset))
-                    .accessibilityIdentifier("controls.reset")
+                    .padding(12)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .background(Palette.ink.opacity(0.85))
+                .overlay(Rectangle().strokeBorder(Palette.teal.opacity(0.5), lineWidth: 1))
+                .frame(maxHeight: 250)
                 Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .frame(maxWidth: 400)
+            .padding(.top, 6)
         }
         .background(Palette.asphalt.ignoresSafeArea())
+        .landscapeWhileVisible()
     }
 
     private var mockHUD: HUDState {
         var h = HUDState()
         h.onFoot = onFoot
-        h.weaponCount = onFoot ? 1 : 0
+        h.weaponCount = onFoot ? 2 : 0
         h.weaponName = onFoot ? "Pistol" : nil
+        h.stamina = 0.7
+        h.speed = 64
+        h.speedFraction = 0.4
+        if onFoot {
+            h.weapons = [
+                .init(id: .pistol, ammo: 35, loaded: true, equipped: true),
+                .init(id: .bat, ammo: 0, loaded: true, equipped: false)
+            ]
+        }
         return h
     }
 }

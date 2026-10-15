@@ -20,6 +20,8 @@ public struct Patrol: Sendable {
     /// Shots a cruiser can take before it's disabled and pulls out of the chase.
     public var health = Patrol.maxHealth
     public static let maxHealth = 6
+    /// Pulled over with the officers out on foot: the cruiser sits still until they're back.
+    public var parked = false
     var pilot: Autopilot?
     var driver = Driver()
     var replanTime: Double = 0
@@ -43,6 +45,8 @@ public enum PatrolBrain {
     public static let searchTime = 6.0
     /// A chasing patrol this close to a slow player stops to box them in.
     public static let boxInDistance = 70.0
+    /// Top speed of a cruiser chasing someone on foot (points/s): between a run and a sprint.
+    public static let footChaseSpeed = 300.0
     /// Cruising speed cap, points/s.
     public static let cruiseSpeed = 230.0
 
@@ -72,7 +76,8 @@ public enum PatrolBrain {
     /// Picks a random road tile at least `minDistance` from `away`.
     static func randomRoadPoint(_ district: District, away: Vec2, minDistance: Double,
                                 rng: inout SplitMix64) -> Vec2? {
-        let roads = district.roadTiles
+        // On a big map, only roads around the player (otherwise cruisers spawn in another city).
+        let roads = district.isLarge ? district.roadTiles(near: away, radius: minDistance + 900) : district.roadTiles
         guard !roads.isEmpty else { return nil }
         for _ in 0..<30 {
             let c = roads[Int(rng.next() % UInt64(roads.count))]
@@ -83,8 +88,8 @@ public enum PatrolBrain {
     }
 
     /// Advances one patrol by `dt`. Returns whether it saw the player this step.
-    public static func step(_ patrol: inout Patrol, player: VehicleState, heatStars: Int,
-                            district: District, rng: inout SplitMix64, dt: Double) -> Bool {
+    public static func step(_ patrol: inout Patrol, player: VehicleState, playerOnFoot: Bool = false,
+                            heatStars: Int, district: District, rng: inout SplitMix64, dt: Double) -> Bool {
         let sees = canSee(patrol.car, target: player.position, district: district)
         if sees { patrol.lastSeen = player.position }
 
@@ -122,6 +127,13 @@ public enum PatrolBrain {
         // Driving.
         var input = VehicleInput.idle
         patrol.replanTime -= dt
+        if patrol.parked {
+            // Officers are out: roll to a stop and wait.
+            input = patrol.car.forwardSpeed > 5 ? VehicleInput(brake: 1) : .idle
+            patrol.car = VehicleDynamics.step(patrol.car, input: input, spec: spec, dt: dt)
+            if patrol.car.speed < 8 { patrol.car.velocity = .zero }
+            return sees
+        }
         switch patrol.mode {
         case .chase:
             if sees && lineOfSight(from: patrol.car.position, to: player.position, district: district) {
@@ -133,7 +145,13 @@ public enum PatrolBrain {
                 } else {
                     // Closing on a slow player: ease off with distance so it pins them, not rams them.
                     let gap = (player.position - patrol.car.position).length
-                    patrol.driver.speedCap = player.speed < 150 ? max(90, gap * 1.6) : nil
+                    if playerOnFoot {
+                        // A runner: officers creep after them on the kerb rather than flooring it
+                        // down a pavement full of people. A sprint opens a gap; a jog doesn't.
+                        patrol.driver.speedCap = min(footChaseSpeed, max(110, gap * 1.3))
+                    } else {
+                        patrol.driver.speedCap = player.speed < 150 ? max(90, gap * 1.6) : nil
+                    }
                     let lead = player.position + player.velocity * 0.35
                     input = patrol.driver.steer(toward: lead, car: patrol.car, dt: dt)
                 }

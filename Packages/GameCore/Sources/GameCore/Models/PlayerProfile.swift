@@ -5,6 +5,11 @@ public struct PlayerProfile: Codable, Sendable, Equatable {
     public static let skinCount = 5
     public static let hairCount = 5
     public static let jacketCount = 8
+    public static let hairStyles = ["Short", "Buzz", "Curls", "Long", "Bun", "Locs", "Bob & bangs", "Ponytail", "Bald"]
+    public static let outfits = ["Jacket", "T-shirt", "Hoodie", "Tank top", "Plaid shirt", "Jumpsuit", "Blouse & skirt", "Cardigan"]
+    public static let builds = ["Slim", "Average", "Athletic", "Broad"]
+    public static let frames = ["Straight", "Curvy"]
+    public static let facialHairs = ["None", "Stubble", "Beard"]
     public static let nameLength = 2...16
 
     public var name: String
@@ -12,6 +17,12 @@ public struct PlayerProfile: Codable, Sendable, Equatable {
     public var hair: Int
     public var jacket: Int
     public var starter: WeaponID
+    /// 3D look (added later, so optional in old saves): index into `hairStyles`, `outfits`, `builds`.
+    public var hairStyle: Int?
+    public var outfit: Int?
+    public var build: Int?
+    public var frame: Int?
+    public var facialHair: Int?
 
     public init(name: String, skin: Int = 0, hair: Int = 0, jacket: Int = 0, starter: WeaponID = .pistol) {
         self.name = name
@@ -40,16 +51,27 @@ public struct PlayerProfile: Codable, Sendable, Equatable {
         p.skin = ((skin % Self.skinCount) + Self.skinCount) % Self.skinCount
         p.hair = ((hair % Self.hairCount) + Self.hairCount) % Self.hairCount
         p.jacket = ((jacket % Self.jacketCount) + Self.jacketCount) % Self.jacketCount
+        p.hairStyle = ((hairStyle ?? 0) % Self.hairStyles.count + Self.hairStyles.count) % Self.hairStyles.count
+        p.outfit = ((outfit ?? 0) % Self.outfits.count + Self.outfits.count) % Self.outfits.count
+        p.build = ((build ?? 1) % Self.builds.count + Self.builds.count) % Self.builds.count
+        p.frame = ((frame ?? 0) % Self.frames.count + Self.frames.count) % Self.frames.count
+        p.facialHair = ((facialHair ?? 0) % Self.facialHairs.count + Self.facialHairs.count) % Self.facialHairs.count
         return p
     }
 
     /// A random look for the dice button. The name is left to the player.
     public static func random<G: RandomNumberGenerator>(name: String, using rng: inout G) -> PlayerProfile {
-        PlayerProfile(name: name,
-                      skin: Int.random(in: 0..<skinCount, using: &rng),
-                      hair: Int.random(in: 0..<hairCount, using: &rng),
-                      jacket: Int.random(in: 0..<jacketCount, using: &rng),
-                      starter: WeaponID.allCases.randomElement(using: &rng) ?? .pistol)
+        var p = PlayerProfile(name: name,
+                              skin: Int.random(in: 0..<skinCount, using: &rng),
+                              hair: Int.random(in: 0..<hairCount, using: &rng),
+                              jacket: Int.random(in: 0..<jacketCount, using: &rng),
+                              starter: WeaponID.allCases.randomElement(using: &rng) ?? .pistol)
+        p.hairStyle = Int.random(in: 0..<hairStyles.count, using: &rng)
+        p.outfit = Int.random(in: 0..<outfits.count, using: &rng)
+        p.build = Int.random(in: 0..<builds.count, using: &rng)
+        p.frame = Int.random(in: 0..<frames.count, using: &rng)
+        p.facialHair = Int.random(in: 0..<facialHairs.count, using: &rng)
+        return p
     }
 }
 

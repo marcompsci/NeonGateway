@@ -17,6 +17,10 @@ struct MissionSelectView: View {
             VStack(spacing: 16) {
                 ScreenHeader(title: "Port Aurora") { router.back() }
                 statusRow
+                SolaraCard { router.go(.drive(.state)) }
+                    .padding(.horizontal, 20)
+                ChallengeCard { router.go(.drive(.mission(.streetChallenge))) }
+                    .padding(.horizontal, 20)
                 CityMapView(district: district, selected: $selected, isUnlocked: isUnlocked)
                     .padding(.horizontal, 20)
                 JobStrip(selected: $selected, isUnlocked: isUnlocked,
@@ -59,6 +63,47 @@ struct MissionSelectView: View {
             .accessibilityElement(children: .combine)
         }
         .padding(.horizontal, 24)
+    }
+}
+
+/// The weekly Street Challenge: this week's route, Nova's time, your best and medal, and how long
+/// until the route changes.
+struct ChallengeCard: View {
+    @Environment(AppModel.self) private var model
+    let onRace: () -> Void
+
+    var body: some View {
+        let state = model.challengeState
+        let rival = model.challengeRival().duration
+        let def = StreetChallenge.def(week: model.challengeWeek)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Street Challenge", systemImage: "flag.checkered")
+                    .pixelLabel(.headline, color: Palette.magenta)
+                Spacer()
+                Text(resetsIn).pixelLabel(.caption2, color: Palette.cream.opacity(0.6))
+            }
+            Text("\(def.objectives.count) checkpoints in order. New route every Monday.")
+                .pixelLabel(.caption, color: Palette.cream.opacity(0.8))
+            HStack(spacing: 18) {
+                Fact(label: StreetChallenge.rivalName, value: String(format: "%.1f s", rival))
+                Fact(label: "Your best", value: state.bestTime.map { String(format: "%.1f s", $0) } ?? "—")
+                Fact(label: "Medal", value: state.medal?.label ?? "—")
+            }
+            Button("Race the ghosts", action: onRace)
+                .buttonStyle(.neon(Palette.magenta))
+                .accessibilityHint("A time trial against Nova's ghost and your own best run")
+                .accessibilityIdentifier("map.challenge")
+        }
+        .padding(14)
+        .background(Palette.ink.opacity(0.6))
+        .overlay(Rectangle().strokeBorder(Palette.magenta.opacity(0.7), lineWidth: 2))
+    }
+
+    private var resetsIn: String {
+        let left = max(0, StreetChallenge.ends(week: model.challengeWeek).timeIntervalSinceNow)
+        let days = Int(left / 86_400), hours = Int(left.truncatingRemainder(dividingBy: 86_400) / 3600)
+        return days > 0 ? "New route in \(days)d \(hours)h" : "New route in \(hours)h"
     }
 }
 
